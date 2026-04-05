@@ -1,0 +1,267 @@
+:root {
+  --bg: #f2f6fb;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-strong: rgba(8, 18, 34, 0.9);
+  --text: #10203a;
+  --muted: #4b617f;
+  --line: rgba(16, 32, 58, 0.1);
+  --accent: #0b7cff;
+  --accent-soft: #dff0ff;
+  --font-heading: "Avenir Next", "Helvetica Neue", "Yu Gothic", sans-serif;
+  --font-body: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body), sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(67, 182, 255, 0.28), transparent 28%),
+    radial-gradient(circle at top right, rgba(18, 74, 203, 0.16), transparent 24%),
+    linear-gradient(180deg, #eff5fb 0%, #f8fbff 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-shell,
+.demo-page {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 72px;
+}
+
+.hero,
+.viewer-layout,
+.timeline-card,
+.demo-header {
+  display: grid;
+  gap: 24px;
+}
+
+.hero {
+  grid-template-columns: 1.5fr 1fr;
+  align-items: center;
+  min-height: 72vh;
+}
+
+.hero-copy h1,
+.demo-header h1,
+.timeline-card h2,
+.feature-card h2,
+.info-card h2 {
+  font-family: var(--font-heading), sans-serif;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.hero-copy h1,
+.demo-header h1 {
+  font-size: clamp(2.8rem, 6vw, 5.6rem);
+  line-height: 0.96;
+  max-width: 11ch;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+}
+
+.lead {
+  max-width: 60ch;
+  margin: 20px 0 0;
+  font-size: 1.02rem;
+  line-height: 1.9;
+  color: var(--muted);
+}
+
+.hero-panel,
+.section-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.metric-card,
+.feature-card,
+.timeline-card,
+.viewer-card,
+.info-card {
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  box-shadow: 0 22px 80px rgba(32, 72, 128, 0.08);
+}
+
+.metric-card {
+  padding: 22px;
+}
+
+.metric-card span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.metric-card strong {
+  font-size: 1.15rem;
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.button-primary {
+  color: white;
+  background: linear-gradient(135deg, #0b7cff 0%, #0f52d8 100%);
+}
+
+.button-secondary {
+  border: 1px solid rgba(11, 124, 255, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.section-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature-card {
+  padding: 24px;
+}
+
+.feature-card p,
+.info-card li,
+.step-list li {
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.timeline-card {
+  grid-template-columns: 1fr 1.2fr;
+  align-items: start;
+  margin-top: 24px;
+  padding: 28px;
+}
+
+.step-list,
+.note-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.demo-header {
+  grid-template-columns: 1.5fr auto;
+  align-items: end;
+  margin-bottom: 24px;
+}
+
+.viewer-layout {
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.7fr);
+  align-items: start;
+}
+
+.viewer-card {
+  overflow: hidden;
+  min-height: 640px;
+  padding: 0;
+}
+
+.viewer-stack {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.viewer-toolbar {
+  display: grid;
+  gap: 10px;
+  padding: 20px 20px 0;
+}
+
+.viewer-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.viewer-tab {
+  border: 1px solid rgba(11, 124, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.viewer-tab.is-active {
+  background: linear-gradient(135deg, #0b7cff 0%, #0f52d8 100%);
+  border-color: transparent;
+  color: white;
+}
+
+.viewer-status,
+.viewer-note {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.three-mount {
+  width: 100%;
+  height: 560px;
+}
+
+.info-card {
+  padding: 24px;
+}
+
+@media (max-width: 960px) {
+  .hero,
+  .section-grid,
+  .timeline-card,
+  .demo-header,
+  .viewer-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy h1,
+  .demo-header h1 {
+    max-width: none;
+  }
+
+  .viewer-card,
+  .three-mount {
+    min-height: 480px;
+    height: 480px;
+  }
+}
