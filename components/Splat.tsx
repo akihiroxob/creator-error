@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SplatLoader, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 type InputState = {
   forward: boolean;
@@ -22,6 +23,7 @@ type OrientationState = {
 type StartingView = {
   moveSpeed: number;
   pitch: number;
+  position: THREE.Vector3;
   radius: number;
   target: THREE.Vector3;
   yaw: number;
@@ -36,6 +38,14 @@ type SampleObject = {
   size: [number, number, number];
 };
 
+export type AssetItem = {
+  id: string;
+  name: string;
+  previewSrc: string;
+  src: string;
+  type: "glb";
+};
+
 export type ViewerLoadingState = {
   active: boolean;
   progress: number;
@@ -43,7 +53,15 @@ export type ViewerLoadingState = {
   detail: string;
 };
 
+type CompassState = {
+  elevationLabel: string;
+  heading: string;
+  pitchDeg: number;
+  rotationDeg: number;
+};
+
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
+export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
 const SPARK_ASSET_URL = "/3sdgs_room.ply";
 
 export const SAMPLE_OBJECTS: SampleObject[] = [
@@ -70,6 +88,53 @@ export const SAMPLE_OBJECTS: SampleObject[] = [
     color: "#38bdf8",
     shape: "box",
     size: [1.2, 0.38, 0.45],
+  },
+];
+
+export const ASSET_ITEMS: AssetItem[] = [
+  {
+    id: "arm-chair",
+    name: "Arm Chair",
+    src: "/asset/arm_chair_2k.glb",
+    previewSrc: "/asset/arm_chair_2k.jpg",
+    type: "glb",
+  },
+  {
+    id: "chinese-sofa",
+    name: "Chinese Sofa",
+    src: "/asset/chinese_sofa_2k.glb",
+    previewSrc: "/asset/chinese_sofa_2k.jpg",
+    type: "glb",
+  },
+  { id: "clock", name: "Clock", src: "/asset/cloc_2k.glb", previewSrc: "/asset/cloc_2k.jpg", type: "glb" },
+  { id: "jug", name: "Jug", src: "/asset/jug_2k.glb", previewSrc: "/asset/jug_2k.jpg", type: "glb" },
+  {
+    id: "ottoman",
+    name: "Ottoman",
+    src: "/asset/Ottoman_2k.glb",
+    previewSrc: "/asset/Ottoman_2k.jpg",
+    type: "glb",
+  },
+  {
+    id: "painted-wooden-stool",
+    name: "Painted Wooden Stool",
+    src: "/asset/painted_wooden_stool_2k.glb",
+    previewSrc: "/asset/painted_wooden_stool_2k.jpg",
+    type: "glb",
+  },
+  {
+    id: "sofa",
+    name: "Sofa",
+    src: "/asset/sofa_2k.glb",
+    previewSrc: "/asset/sofa_2k.jpg",
+    type: "glb",
+  },
+  {
+    id: "steel-frame",
+    name: "Steel Frame",
+    src: "/asset/steel_frame_2k.glb",
+    previewSrc: "/asset/steel_frame_2k.jpg",
+    type: "glb",
   },
 ];
 
@@ -134,9 +199,142 @@ function createPlacedObject(sample: SampleObject) {
   return group;
 }
 
+function orientPlacedObject(group: THREE.Object3D, camera: THREE.PerspectiveCamera) {
+  const facing = new THREE.Vector3();
+  camera.getWorldDirection(facing);
+  facing.y = 0;
+  if (facing.lengthSq() === 0) {
+    facing.set(0, 0, -1);
+  }
+  group.rotation.y = Math.atan2(facing.x, facing.z) + Math.PI;
+}
+
+function disposeObject3D(root: THREE.Object3D) {
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.geometry) {
+      mesh.geometry.dispose();
+    }
+    const material = mesh.material;
+    if (Array.isArray(material)) {
+      material.forEach((entry) => entry.dispose());
+    } else if (material instanceof THREE.Material) {
+      material.dispose();
+    }
+  });
+}
+
+function createPlacedAssetPlaceholder(asset: AssetItem, camera: THREE.PerspectiveCamera) {
+  const group = new THREE.Group();
+  const width = 1.4;
+  const height = 1;
+  const geometry = new THREE.PlaneGeometry(width, height);
+  const material = new THREE.MeshBasicMaterial({
+    color: "#dbeafe",
+    side: THREE.DoubleSide,
+  });
+  const panel = new THREE.Mesh(geometry, material);
+  panel.position.y = height / 2;
+  group.add(panel);
+
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.08, height + 0.08, 0.05),
+    new THREE.MeshStandardMaterial({
+      color: "#0f172a",
+      roughness: 0.6,
+      metalness: 0.15,
+    }),
+  );
+  frame.position.set(0, height / 2, -0.03);
+  group.add(frame);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.16, 0.08, 24),
+    new THREE.MeshStandardMaterial({
+      color: "#334155",
+      roughness: 0.75,
+      metalness: 0.1,
+    }),
+  );
+  base.position.y = 0.04;
+  group.add(base);
+
+  orientPlacedObject(group, camera);
+
+  const loader = new THREE.TextureLoader();
+  let texture: THREE.Texture | null = null;
+  void loader.load(
+    asset.previewSrc,
+    (loaded) => {
+      texture = loaded;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      material.map = texture;
+      material.needsUpdate = true;
+    },
+    undefined,
+    () => {
+      material.color.set("#fca5a5");
+    },
+  );
+
+  group.userData.dispose = () => {
+    geometry.dispose();
+    panel.material.dispose();
+    frame.geometry.dispose();
+    frame.material.dispose();
+    base.geometry.dispose();
+    base.material.dispose();
+    texture?.dispose();
+  };
+
+  return group;
+}
+
+async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveCamera) {
+  const group = new THREE.Group();
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(asset.src);
+  const model = gltf.scene;
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const largestSide = Math.max(size.x, size.y, size.z, 0.001);
+  const targetSize = 1.4;
+  const scale = targetSize / largestSide;
+
+  model.position.sub(center);
+  model.scale.setScalar(scale);
+  const scaledBox = new THREE.Box3().setFromObject(model);
+  model.position.y -= scaledBox.min.y;
+
+  group.add(model);
+  orientPlacedObject(group, camera);
+  group.userData.dispose = () => {
+    disposeObject3D(group);
+  };
+  return group;
+}
+
 function getWorldBoundingBox(object: SplatMesh) {
   object.updateMatrixWorld(true);
   return object.getBoundingBox().clone().applyMatrix4(object.matrixWorld);
+}
+
+function toCompassState(direction: THREE.Vector3): CompassState {
+  const normalizedHeading = THREE.MathUtils.euclideanModulo(
+    THREE.MathUtils.radToDeg(Math.atan2(direction.x, -direction.z)),
+    360,
+  );
+  const headings = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const index = Math.round(normalizedHeading / 45) % headings.length;
+
+  return {
+    elevationLabel:
+      Math.abs(direction.y) < 0.2 ? "LEVEL" : direction.y > 0 ? "UP" : "DOWN",
+    heading: headings[index],
+    pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1))),
+    rotationDeg: normalizedHeading,
+  };
 }
 
 function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh) {
@@ -158,6 +356,7 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
     return {
       moveSpeed: 1,
       pitch: orientation.x,
+      position: camera.position.clone(),
       radius: 1,
       target,
       yaw: orientation.y,
@@ -168,17 +367,52 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
   const target = center.clone();
   const farPlane = Math.max(maxSize * 20, 100);
   const dominantHorizontalAxis = size.x >= size.z ? "x" : "z";
-  const lookOffset = Math.max(maxSize * 0.08, 0.35);
+  const horizontalInsetX = Math.max(size.x * 0.18, 0.4);
+  const horizontalInsetZ = Math.max(size.z * 0.18, 0.4);
+  const eyeHeight = THREE.MathUtils.clamp(size.y * 0.07, 0.22, 0.95);
+  const headroom = Math.max(size.y * 0.12, 0.35);
+  const minimumInteriorY = box.min.y + Math.max(size.y * 0.04, 0.16);
+  const lookDownOffset = Math.max(size.y * 0.03, 0.05);
+  const initialRaise = THREE.MathUtils.clamp(Math.max(maxSize * 0.025, 0.14), 0.14, 0.32);
+  const startOffset =
+    dominantHorizontalAxis === "x"
+      ? Math.max(size.x * 0.16, 0.8)
+      : Math.max(size.z * 0.16, 0.8);
+  const northLookOffset = Math.max(size.z * 0.08, 0.45);
 
   camera.near = 0.01;
   camera.far = farPlane;
   camera.up.set(0, 1, 0);
 
+  start.y = THREE.MathUtils.clamp(
+    Math.max(box.min.y + eyeHeight + initialRaise, minimumInteriorY),
+    box.min.y + 0.35,
+    box.max.y - headroom,
+  );
+  target.y = start.y - lookDownOffset;
+
   if (dominantHorizontalAxis === "x") {
-    target.x += lookOffset;
+    start.x = THREE.MathUtils.clamp(
+      center.x - startOffset,
+      box.min.x + horizontalInsetX,
+      box.max.x - horizontalInsetX,
+    );
+    target.x = start.x;
+    start.z = THREE.MathUtils.clamp(start.z, box.min.z + horizontalInsetZ, box.max.z - horizontalInsetZ);
   } else {
-    target.z += lookOffset;
+    start.z = THREE.MathUtils.clamp(
+      center.z - startOffset,
+      box.min.z + horizontalInsetZ,
+      box.max.z - horizontalInsetZ,
+    );
+    start.x = THREE.MathUtils.clamp(start.x, box.min.x + horizontalInsetX, box.max.x - horizontalInsetX);
   }
+
+  target.z = THREE.MathUtils.clamp(
+    start.z - northLookOffset,
+    box.min.z + horizontalInsetZ,
+    box.max.z - horizontalInsetZ,
+  );
 
   camera.position.copy(start);
   camera.lookAt(target);
@@ -188,6 +422,7 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
   return {
     moveSpeed: Math.max(maxSize * 0.2, 0.35),
     pitch: orientation.x,
+    position: start.clone(),
     radius: camera.position.distanceTo(target),
     target,
     yaw: orientation.y,
@@ -205,6 +440,12 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const [status, setStatus] = useState("Spark を読み込み中...");
   const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [compass, setCompass] = useState<CompassState>({
+    elevationLabel: "LEVEL",
+    heading: "N",
+    pitchDeg: 0,
+    rotationDeg: 0,
+  });
 
   const reportLoadingState = (state: ViewerLoadingState) => {
     onLoadingStateChange?.({
@@ -267,6 +508,70 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     setStatus(`${sample.name} を配置しました`);
     setDropHint("別のサンプルもドラッグして配置できます");
+  };
+
+  const placeAssetItem = async (assetId: string, clientX: number, clientY: number) => {
+    const container = containerRef.current;
+    const camera = cameraRef.current;
+    const placementLayer = placementLayerRef.current;
+    const worldBounds = worldBoundsRef.current;
+
+    if (!container || !camera || !placementLayer || !worldBounds) {
+      return;
+    }
+
+    const asset = ASSET_ITEMS.find((item) => item.id === assetId);
+    if (!asset) {
+      return;
+    }
+
+    const bounds = container.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+
+    const pointer = new THREE.Vector2(
+      ((clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((clientY - bounds.top) / bounds.height) * 2 + 1,
+    );
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
+    const hitPoint = new THREE.Vector3();
+    raycasterRef.current.setFromCamera(pointer, camera);
+
+    if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
+      return;
+    }
+
+    hitPoint.x = THREE.MathUtils.clamp(hitPoint.x, worldBounds.min.x + 0.8, worldBounds.max.x - 0.8);
+    hitPoint.z = THREE.MathUtils.clamp(hitPoint.z, worldBounds.min.z + 0.8, worldBounds.max.z - 0.8);
+    hitPoint.y = placementPlaneYRef.current;
+
+    const placeholder = createPlacedAssetPlaceholder(asset, camera);
+    placeholder.position.copy(hitPoint);
+    placementLayer.add(placeholder);
+    requestRenderRef.current();
+    setStatus(`${asset.name} を読み込み中...`);
+
+    try {
+      const placedAsset = await createPlacedGlbAsset(asset, camera);
+      if (!placementLayer.children.includes(placeholder)) {
+        placedAsset.userData.dispose?.();
+        return;
+      }
+      const disposePlaceholder = placeholder.userData.dispose;
+      if (typeof disposePlaceholder === "function") {
+        disposePlaceholder();
+      }
+      placementLayer.remove(placeholder);
+      placedAsset.position.copy(hitPoint);
+      placementLayer.add(placedAsset);
+      requestRenderRef.current();
+      setStatus(`${asset.name} を配置しました`);
+      setDropHint("別の GLB アセットもハンバーガーメニューから配置できます");
+    } catch {
+      setStatus(`${asset.name} の読み込みに失敗しました`);
+      setDropHint("アセット形式を確認してください");
+    }
   };
 
   useEffect(() => {
@@ -364,6 +669,19 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       euler.set(orientation.pitch, orientation.yaw, 0);
       camera.quaternion.setFromEuler(euler);
       camera.lookAt(lookTarget);
+      const nextCompass = toCompassState(direction);
+      setCompass((current) => {
+        if (
+          current.elevationLabel === nextCompass.elevationLabel &&
+          current.heading === nextCompass.heading &&
+          Math.abs(current.pitchDeg - nextCompass.pitchDeg) < 0.5 &&
+          Math.abs(current.rotationDeg - nextCompass.rotationDeg) < 0.5
+        ) {
+          return current;
+        }
+
+        return nextCompass;
+      });
     };
 
     const renderFrame = () => {
@@ -407,7 +725,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       lastPointerX = event.clientX;
       lastPointerY = event.clientY;
 
-      orientation.yaw += deltaX * lookSensitivity;
+      orientation.yaw -= deltaX * lookSensitivity;
       orientation.pitch += deltaY * lookSensitivity;
       applyOrientation();
       requestRender();
@@ -602,7 +920,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           active: true,
           progress: 78,
           stage: "読み込み中",
-          detail: "ksplat データをメッシュへ変換しています",
+          detail: "PLY データをメッシュへ変換しています",
         });
 
         splatMesh = await new SplatMesh({
@@ -621,7 +939,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           detail: "シーンと初期カメラを確定しています",
         });
 
-        splatMesh.rotation.x = -Math.PI / 2;
+        splatMesh.rotation.z = Math.PI;
+        splatMesh.updateMatrixWorld(true);
         scene.add(splatMesh);
 
         const startingView = prepareStartingView(camera, splatMesh);
@@ -707,7 +1026,9 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     <div
       ref={containerRef}
       onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes(SAMPLE_OBJECT_TRANSFER_TYPE)) {
+        const canDropSample = event.dataTransfer.types.includes(SAMPLE_OBJECT_TRANSFER_TYPE);
+        const canDropAsset = event.dataTransfer.types.includes(ASSET_ITEM_TRANSFER_TYPE);
+        if (!canDropSample && !canDropAsset) {
           return;
         }
 
@@ -725,12 +1046,15 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       onDrop={(event) => {
         event.preventDefault();
         const sampleId = event.dataTransfer.getData(SAMPLE_OBJECT_TRANSFER_TYPE);
+        const assetId = event.dataTransfer.getData(ASSET_ITEM_TRANSFER_TYPE);
         setIsDraggingOver(false);
-        if (!sampleId) {
+        if (assetId) {
+          placeAssetItem(assetId, event.clientX, event.clientY);
           return;
         }
-
-        placeSampleObject(sampleId, event.clientX, event.clientY);
+        if (sampleId) {
+          placeSampleObject(sampleId, event.clientX, event.clientY);
+        }
       }}
       style={{
         position: "relative",
@@ -757,6 +1081,204 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       <div
         style={{
           position: "absolute",
+          right: 16,
+          bottom: 96,
+          maxWidth: "calc(100vw - 32px)",
+          minHeight: 0,
+          zIndex: 1,
+          width: 120,
+          padding: "12px 14px",
+          borderRadius: 18,
+          background: "rgba(8, 17, 30, 0.7)",
+          color: "rgba(255, 255, 255, 0.92)",
+          pointerEvents: "none",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+        }}
+      >
+        <div
+          style={{
+            marginBottom: 8,
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "rgba(125, 211, 252, 0.88)",
+          }}
+        >
+          Direction
+        </div>
+        <div
+          aria-label={`現在の向き ${compass.heading}`}
+          style={{
+            position: "relative",
+            width: 92,
+            height: 92,
+            margin: "0 auto",
+            borderRadius: "50%",
+            border: "1px solid rgba(125, 211, 252, 0.28)",
+            background:
+              "radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.14), rgba(15, 23, 42, 0.2) 60%, rgba(15, 23, 42, 0.5) 100%)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              right: -28,
+              bottom: 12,
+              width: 12,
+              borderRadius: 999,
+              border: "1px solid rgba(125, 211, 252, 0.24)",
+              background: "rgba(15, 23, 42, 0.82)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 1,
+                right: 1,
+                top: "50%",
+                height: 1,
+                background: "rgba(226, 232, 240, 0.24)",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: 1,
+                right: 1,
+                top: `${50 - THREE.MathUtils.clamp(compass.pitchDeg / 90, -1, 1) * 44}%`,
+                height: 10,
+                borderRadius: 999,
+                background: "linear-gradient(180deg, #7dd3fc 0%, #38bdf8 100%)",
+                boxShadow: "0 0 12px rgba(56, 189, 248, 0.45)",
+                transform: "translateY(-50%)",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: 8,
+              transform: "translateX(-50%)",
+              fontSize: 11,
+              fontWeight: 700,
+              color: "#f8fafc",
+            }}
+          >
+            N
+          </span>
+          <span
+            style={{
+              position: "absolute",
+              top: "50%",
+              right: 8,
+              transform: "translateY(-50%)",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "rgba(226, 232, 240, 0.68)",
+            }}
+          >
+            E
+          </span>
+          <span
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: 8,
+              transform: "translateX(-50%)",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "rgba(226, 232, 240, 0.68)",
+            }}
+          >
+            S
+          </span>
+          <span
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: 8,
+              transform: "translateY(-50%)",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "rgba(226, 232, 240, 0.68)",
+            }}
+          >
+            W
+          </span>
+          <div
+            style={{
+              position: "absolute",
+              inset: 18,
+              transform: `rotate(${compass.rotationDeg}deg)`,
+              transition: "transform 120ms ease-out",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: 2,
+                width: 2,
+                height: 32,
+                borderRadius: 999,
+                background: "linear-gradient(180deg, #38bdf8 0%, rgba(56, 189, 248, 0.12) 100%)",
+                transform: "translateX(-50%)",
+                transformOrigin: "center bottom",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: -2,
+                width: 0,
+                height: 0,
+                borderLeft: "6px solid transparent",
+                borderRight: "6px solid transparent",
+                borderBottom: "12px solid #38bdf8",
+                transform: "translateX(-50%)",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "#e2e8f0",
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 10,
+            textAlign: "center",
+            fontSize: 20,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+          }}
+        >
+          {compass.heading}
+        </div>
+        <div
+          style={{
+            marginTop: 4,
+            height: 0,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          right: 16,
           left: 16,
           bottom: 16,
           zIndex: 1,
