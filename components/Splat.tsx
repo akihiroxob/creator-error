@@ -48,6 +48,7 @@ export type AssetItem = {
 
 export type ViewerLoadingState = {
   active: boolean;
+  mode: "busy" | "progress";
   progress: number;
   stage: string;
   detail: string;
@@ -106,8 +107,20 @@ export const ASSET_ITEMS: AssetItem[] = [
     previewSrc: "/asset/chinese_sofa_2k.jpg",
     type: "glb",
   },
-  { id: "clock", name: "Clock", src: "/asset/cloc_2k.glb", previewSrc: "/asset/cloc_2k.jpg", type: "glb" },
-  { id: "jug", name: "Jug", src: "/asset/jug_2k.glb", previewSrc: "/asset/jug_2k.jpg", type: "glb" },
+  {
+    id: "clock",
+    name: "Clock",
+    src: "/asset/cloc_2k.glb",
+    previewSrc: "/asset/cloc_2k.jpg",
+    type: "glb",
+  },
+  {
+    id: "jug",
+    name: "Jug",
+    src: "/asset/jug_2k.glb",
+    previewSrc: "/asset/jug_2k.jpg",
+    type: "glb",
+  },
   {
     id: "ottoman",
     name: "Ottoman",
@@ -329,8 +342,7 @@ function toCompassState(direction: THREE.Vector3): CompassState {
   const index = Math.round(normalizedHeading / 45) % headings.length;
 
   return {
-    elevationLabel:
-      Math.abs(direction.y) < 0.2 ? "LEVEL" : direction.y > 0 ? "UP" : "DOWN",
+    elevationLabel: Math.abs(direction.y) < 0.2 ? "LEVEL" : direction.y > 0 ? "UP" : "DOWN",
     heading: headings[index],
     pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1))),
     rotationDeg: normalizedHeading,
@@ -375,9 +387,7 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
   const lookDownOffset = Math.max(size.y * 0.03, 0.05);
   const initialRaise = THREE.MathUtils.clamp(Math.max(maxSize * 0.025, 0.14), 0.14, 0.32);
   const startOffset =
-    dominantHorizontalAxis === "x"
-      ? Math.max(size.x * 0.16, 0.8)
-      : Math.max(size.z * 0.16, 0.8);
+    dominantHorizontalAxis === "x" ? Math.max(size.x * 0.16, 0.8) : Math.max(size.z * 0.16, 0.8);
   const northLookOffset = Math.max(size.z * 0.08, 0.45);
 
   camera.near = 0.01;
@@ -398,14 +408,22 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
       box.max.x - horizontalInsetX,
     );
     target.x = start.x;
-    start.z = THREE.MathUtils.clamp(start.z, box.min.z + horizontalInsetZ, box.max.z - horizontalInsetZ);
+    start.z = THREE.MathUtils.clamp(
+      start.z,
+      box.min.z + horizontalInsetZ,
+      box.max.z - horizontalInsetZ,
+    );
   } else {
     start.z = THREE.MathUtils.clamp(
       center.z - startOffset,
       box.min.z + horizontalInsetZ,
       box.max.z - horizontalInsetZ,
     );
-    start.x = THREE.MathUtils.clamp(start.x, box.min.x + horizontalInsetX, box.max.x - horizontalInsetX);
+    start.x = THREE.MathUtils.clamp(
+      start.x,
+      box.min.x + horizontalInsetX,
+      box.max.x - horizontalInsetX,
+    );
   }
 
   target.z = THREE.MathUtils.clamp(
@@ -437,6 +455,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const placementPlaneYRef = useRef(0);
   const requestRenderRef = useRef<() => void>(() => {});
   const raycasterRef = useRef(new THREE.Raycaster());
+  const loadingPhaseRankRef = useRef(0);
   const [status, setStatus] = useState("Spark を読み込み中...");
   const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -448,6 +467,14 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   });
 
   const reportLoadingState = (state: ViewerLoadingState) => {
+    const nextRank = state.active ? (state.mode === "progress" ? 1 : 2) : 3;
+    const currentRank = loadingPhaseRankRef.current;
+
+    if (nextRank < currentRank) {
+      return;
+    }
+
+    loadingPhaseRankRef.current = nextRank;
     onLoadingStateChange?.({
       ...state,
       progress: THREE.MathUtils.clamp(Math.round(state.progress), 0, 100),
@@ -542,8 +569,16 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       return;
     }
 
-    hitPoint.x = THREE.MathUtils.clamp(hitPoint.x, worldBounds.min.x + 0.8, worldBounds.max.x - 0.8);
-    hitPoint.z = THREE.MathUtils.clamp(hitPoint.z, worldBounds.min.z + 0.8, worldBounds.max.z - 0.8);
+    hitPoint.x = THREE.MathUtils.clamp(
+      hitPoint.x,
+      worldBounds.min.x + 0.8,
+      worldBounds.max.x - 0.8,
+    );
+    hitPoint.z = THREE.MathUtils.clamp(
+      hitPoint.z,
+      worldBounds.min.z + 0.8,
+      worldBounds.max.z - 0.8,
+    );
     hitPoint.y = placementPlaneYRef.current;
 
     const placeholder = createPlacedAssetPlaceholder(asset, camera);
@@ -660,11 +695,13 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         -Math.PI / 2 + 0.01,
         Math.PI / 2 - 0.01,
       );
-      direction.set(
-        Math.sin(orientation.yaw) * Math.cos(orientation.pitch),
-        Math.sin(orientation.pitch),
-        -Math.cos(orientation.yaw) * Math.cos(orientation.pitch),
-      ).normalize();
+      direction
+        .set(
+          Math.sin(orientation.yaw) * Math.cos(orientation.pitch),
+          Math.sin(orientation.pitch),
+          -Math.cos(orientation.yaw) * Math.cos(orientation.pitch),
+        )
+        .normalize();
       lookTarget.copy(camera.position).addScaledVector(direction, lookRadius);
       euler.set(orientation.pitch, orientation.yaw, 0);
       camera.quaternion.setFromEuler(euler);
@@ -891,11 +928,13 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     void (async () => {
       try {
+        loadingPhaseRankRef.current = 0;
         const loader = new SplatLoader();
         setStatus("Spark で 3sdgs_room.ply を読み込み中...");
         reportLoadingState({
           active: true,
-          progress: 24,
+          mode: "progress",
+          progress: 0,
           stage: "ダウンロード中",
           detail: "PLY アセットを取得しています",
         });
@@ -903,25 +942,31 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         const packedSplats = await loader.loadAsync(SPARK_ASSET_URL, (event) => {
           const total = event.total && event.total > 0 ? event.total : event.loaded || 1;
           const ratio = total > 0 ? event.loaded / total : 0;
+          const percent = Math.min(100, Math.max(0, ratio * 100));
+
           reportLoadingState({
             active: true,
-            progress: 24 + ratio * 46,
+            mode: "progress",
+            progress: percent,
             stage: "ダウンロード中",
-            detail: `${Math.round(ratio * 100)}% 受信済み`,
+            detail: `PLY アセットを取得しています`,
           });
+
+          if (percent >= 100) {
+            reportLoadingState({
+              active: true,
+              mode: "busy",
+              progress: 100,
+              stage: "読み込み中",
+              detail: "PLY データをメッシュへ変換しています",
+            });
+          }
         });
 
         if (disposed) {
           packedSplats.dispose();
           return;
         }
-
-        reportLoadingState({
-          active: true,
-          progress: 78,
-          stage: "読み込み中",
-          detail: "PLY データをメッシュへ変換しています",
-        });
 
         splatMesh = await new SplatMesh({
           packedSplats,
@@ -934,7 +979,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
         reportLoadingState({
           active: true,
-          progress: 92,
+          mode: "busy",
+          progress: 100,
           stage: "描画中",
           detail: "シーンと初期カメラを確定しています",
         });
@@ -963,6 +1009,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         setStatus(`Spark: ${splatMesh.packedSplats.numSplats.toLocaleString()} splats`);
         reportLoadingState({
           active: false,
+          mode: "busy",
           progress: 100,
           stage: "完了",
           detail: "ビューアの準備が完了しました",
@@ -977,6 +1024,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         setStatus(`読み込み失敗: ${message}`);
         reportLoadingState({
           active: false,
+          mode: "busy",
           progress: 100,
           stage: "エラー",
           detail: message,
@@ -1011,6 +1059,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       requestRenderRef.current = () => {};
       reportLoadingState({
         active: false,
+        mode: "busy",
         progress: 100,
         stage: "停止",
         detail: "ビューアを終了しました",
