@@ -43,6 +43,7 @@ export type AssetItem = {
   name: string;
   previewSrc: string;
   src: string;
+  targetSize: number;
   type: "glb";
 };
 
@@ -63,7 +64,7 @@ type CompassState = {
 
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
-const SPARK_ASSET_URL = "/3sdgs_room.ply";
+const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
 
 export const SAMPLE_OBJECTS: SampleObject[] = [
   {
@@ -96,57 +97,65 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "arm-chair",
     name: "Arm Chair",
-    src: "/asset/arm_chair_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/arm_chair_2k.glb",
     previewSrc: "/asset/arm_chair_2k.jpg",
+    targetSize: 0.68,
     type: "glb",
   },
   {
     id: "chinese-sofa",
     name: "Chinese Sofa",
-    src: "/asset/chinese_sofa_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/chinese_sofa_2k.glb",
     previewSrc: "/asset/chinese_sofa_2k.jpg",
+    targetSize: 1.05,
     type: "glb",
   },
   {
     id: "clock",
     name: "Clock",
-    src: "/asset/cloc_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/cloc_2k.glb",
     previewSrc: "/asset/cloc_2k.jpg",
+    targetSize: 0.36,
     type: "glb",
   },
   {
     id: "jug",
     name: "Jug",
-    src: "/asset/jug_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/jug_2k.glb",
     previewSrc: "/asset/jug_2k.jpg",
+    targetSize: 0.26,
     type: "glb",
   },
   {
     id: "ottoman",
     name: "Ottoman",
-    src: "/asset/Ottoman_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/Ottoman_2k.glb",
     previewSrc: "/asset/Ottoman_2k.jpg",
+    targetSize: 0.46,
     type: "glb",
   },
   {
     id: "painted-wooden-stool",
     name: "Painted Wooden Stool",
-    src: "/asset/painted_wooden_stool_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/painted_wooden_stool_2k.glb",
     previewSrc: "/asset/painted_wooden_stool_2k.jpg",
+    targetSize: 0.42,
     type: "glb",
   },
   {
     id: "sofa",
     name: "Sofa",
-    src: "/asset/sofa_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/sofa_2k.glb",
     previewSrc: "/asset/sofa_2k.jpg",
+    targetSize: 1.13,
     type: "glb",
   },
   {
     id: "steel-frame",
     name: "Steel Frame",
-    src: "/asset/steel_frame_2k.glb",
+    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/steel_frame_2k.glb",
     previewSrc: "/asset/steel_frame_2k.jpg",
+    targetSize: 0.9,
     type: "glb",
   },
 ];
@@ -154,6 +163,34 @@ export const ASSET_ITEMS: AssetItem[] = [
 type SparkSceneProps = {
   onLoadingStateChange?: (state: ViewerLoadingState) => void;
 };
+
+function attachSelectionIndicator(group: THREE.Group, radius: number) {
+  const indicator = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.72, radius, 48),
+    new THREE.MeshBasicMaterial({
+      color: "#38bdf8",
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide,
+    }),
+  );
+  indicator.rotation.x = -Math.PI / 2;
+  indicator.position.y = 0.02;
+  indicator.visible = false;
+  group.add(indicator);
+  group.userData.selectionIndicator = indicator;
+}
+
+function setObjectSelected(object: THREE.Object3D | null, selected: boolean) {
+  if (!object) {
+    return;
+  }
+
+  const indicator = object.userData.selectionIndicator;
+  if (indicator instanceof THREE.Object3D) {
+    indicator.visible = selected;
+  }
+}
 
 function createPlacedObject(sample: SampleObject) {
   const [width, height, depth] = sample.size;
@@ -196,8 +233,11 @@ function createPlacedObject(sample: SampleObject) {
   marker.rotation.x = -Math.PI / 2;
   marker.position.y = 0.015;
   group.add(marker);
+  attachSelectionIndicator(group, Math.max(width, depth) * 0.92);
+  group.userData.selectable = true;
 
   group.userData.dispose = () => {
+    const selectionIndicator = group.userData.selectionIndicator as THREE.Mesh | undefined;
     geometry.dispose();
     silhouette.geometry.dispose();
     marker.geometry.dispose();
@@ -206,6 +246,13 @@ function createPlacedObject(sample: SampleObject) {
     const markerMaterial = marker.material;
     if (markerMaterial instanceof THREE.Material) {
       markerMaterial.dispose();
+    }
+    if (selectionIndicator) {
+      selectionIndicator.geometry.dispose();
+      const selectionMaterial = selectionIndicator.material;
+      if (selectionMaterial instanceof THREE.Material) {
+        selectionMaterial.dispose();
+      }
     }
   };
 
@@ -312,8 +359,7 @@ async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveC
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const largestSide = Math.max(size.x, size.y, size.z, 0.001);
-  const targetSize = 1.4;
-  const scale = targetSize / largestSide;
+  const scale = asset.targetSize / largestSide;
 
   model.position.sub(center);
   model.scale.setScalar(scale);
@@ -321,7 +367,10 @@ async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveC
   model.position.y -= scaledBox.min.y;
 
   group.add(model);
+  const scaledSize = scaledBox.getSize(new THREE.Vector3());
+  attachSelectionIndicator(group, Math.max(scaledSize.x, scaledSize.z, 0.45) * 0.58);
   orientPlacedObject(group, camera);
+  group.userData.selectable = true;
   group.userData.dispose = () => {
     disposeObject3D(group);
   };
@@ -456,6 +505,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const requestRenderRef = useRef<() => void>(() => {});
   const raycasterRef = useRef(new THREE.Raycaster());
   const loadingPhaseRankRef = useRef(0);
+  const selectedObjectRef = useRef<THREE.Object3D | null>(null);
   const [status, setStatus] = useState("Spark を読み込み中...");
   const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -531,10 +581,13 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     const placedObject = createPlacedObject(sample);
     placedObject.position.copy(hitPoint);
     placementLayer.add(placedObject);
+    setObjectSelected(selectedObjectRef.current, false);
+    selectedObjectRef.current = placedObject;
+    setObjectSelected(placedObject, true);
     requestRenderRef.current();
 
     setStatus(`${sample.name} を配置しました`);
-    setDropHint("別のサンプルもドラッグして配置できます");
+    setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
   };
 
   const placeAssetItem = async (assetId: string, clientX: number, clientY: number) => {
@@ -600,9 +653,12 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       placementLayer.remove(placeholder);
       placedAsset.position.copy(hitPoint);
       placementLayer.add(placedAsset);
+      setObjectSelected(selectedObjectRef.current, false);
+      selectedObjectRef.current = placedAsset;
+      setObjectSelected(placedAsset, true);
       requestRenderRef.current();
       setStatus(`${asset.name} を配置しました`);
-      setDropHint("別の GLB アセットもハンバーガーメニューから配置できます");
+      setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
     } catch {
       setStatus(`${asset.name} の読み込みに失敗しました`);
       setDropHint("アセット形式を確認してください");
@@ -673,6 +729,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     let moveSpeed = 1;
     let lookRadius = 1;
     let dragging = false;
+    let movingSelectedObject = false;
     let lastPointerX = 0;
     let lastPointerY = 0;
     let renderRequested = true;
@@ -688,6 +745,53 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       renderRequested = true;
     };
     requestRenderRef.current = requestRender;
+
+    const getPointerOnPlacementPlane = (clientX: number, clientY: number) => {
+      const containerBounds = container.getBoundingClientRect();
+      if (containerBounds.width <= 0 || containerBounds.height <= 0) {
+        return null;
+      }
+
+      const pointer = new THREE.Vector2(
+        ((clientX - containerBounds.left) / containerBounds.width) * 2 - 1,
+        -((clientY - containerBounds.top) / containerBounds.height) * 2 + 1,
+      );
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
+      const hitPoint = new THREE.Vector3();
+      raycasterRef.current.setFromCamera(pointer, camera);
+
+      if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
+        return null;
+      }
+
+      return hitPoint;
+    };
+
+    const findPlacedObjectAtPointer = (clientX: number, clientY: number) => {
+      const containerBounds = container.getBoundingClientRect();
+      if (containerBounds.width <= 0 || containerBounds.height <= 0) {
+        return null;
+      }
+
+      const pointer = new THREE.Vector2(
+        ((clientX - containerBounds.left) / containerBounds.width) * 2 - 1,
+        -((clientY - containerBounds.top) / containerBounds.height) * 2 + 1,
+      );
+      raycasterRef.current.setFromCamera(pointer, camera);
+      const intersections = raycasterRef.current.intersectObjects(placementLayer.children, true);
+
+      for (const intersection of intersections) {
+        let current: THREE.Object3D | null = intersection.object;
+        while (current && current.parent !== placementLayer) {
+          current = current.parent;
+        }
+        if (current?.userData.selectable) {
+          return current;
+        }
+      }
+
+      return null;
+    };
 
     const applyOrientation = () => {
       orientation.pitch = THREE.MathUtils.clamp(
@@ -744,6 +848,28 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         return;
       }
 
+      const hitPlacedObject = findPlacedObjectAtPointer(event.clientX, event.clientY);
+      if (hitPlacedObject) {
+        setObjectSelected(selectedObjectRef.current, false);
+        selectedObjectRef.current = hitPlacedObject;
+        setObjectSelected(hitPlacedObject, true);
+        movingSelectedObject = true;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        renderer.domElement.style.cursor = "move";
+        renderer.domElement.setPointerCapture(event.pointerId);
+        requestRender();
+        setStatus("オブジェクトを選択しました");
+        setDropHint("選択中: ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
+        return;
+      }
+
+      if (selectedObjectRef.current) {
+        setObjectSelected(selectedObjectRef.current, false);
+        selectedObjectRef.current = null;
+        requestRender();
+      }
+
       dragging = true;
       lastPointerX = event.clientX;
       lastPointerY = event.clientY;
@@ -753,6 +879,45 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      if (movingSelectedObject) {
+        const selectedObject = selectedObjectRef.current;
+        const worldBounds = worldBoundsRef.current;
+        const deltaX = event.clientX - lastPointerX;
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+
+        if (!selectedObject) {
+          return;
+        }
+
+        if (event.shiftKey) {
+          selectedObject.rotation.y += deltaX * 0.01;
+          requestRender();
+          return;
+        }
+
+        const hitPoint = getPointerOnPlacementPlane(event.clientX, event.clientY);
+
+        if (!worldBounds || !hitPoint) {
+          return;
+        }
+
+        hitPoint.x = THREE.MathUtils.clamp(
+          hitPoint.x,
+          worldBounds.min.x + 0.35,
+          worldBounds.max.x - 0.35,
+        );
+        hitPoint.z = THREE.MathUtils.clamp(
+          hitPoint.z,
+          worldBounds.min.z + 0.35,
+          worldBounds.max.z - 0.35,
+        );
+        hitPoint.y = placementPlaneYRef.current;
+        selectedObject.position.copy(hitPoint);
+        requestRender();
+        return;
+      }
+
       if (!dragging) {
         return;
       }
@@ -769,6 +934,16 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
 
     const endDrag = (event: PointerEvent) => {
+      if (movingSelectedObject) {
+        movingSelectedObject = false;
+        renderer.domElement.style.cursor = "grab";
+        if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+          renderer.domElement.releasePointerCapture(event.pointerId);
+        }
+        setStatus("オブジェクト位置を更新しました");
+        return;
+      }
+
       dragging = false;
       renderer.domElement.style.cursor = "grab";
       if (renderer.domElement.hasPointerCapture(event.pointerId)) {
@@ -777,6 +952,20 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
+      const selectedObject = selectedObjectRef.current;
+
+      if (selectedObject && (event.code === "BracketLeft" || event.code === "BracketRight")) {
+        selectedObject.rotation.y +=
+          event.code === "BracketLeft"
+            ? THREE.MathUtils.degToRad(12)
+            : -THREE.MathUtils.degToRad(12);
+        event.preventDefault();
+        requestRender();
+        setStatus("オブジェクト角度を更新しました");
+        setDropHint("選択中: ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
+        return;
+      }
+
       switch (event.code) {
         case "KeyW":
         case "ArrowUp":
@@ -851,6 +1040,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     const clearInput = () => {
       dragging = false;
+      movingSelectedObject = false;
       renderer.domElement.style.cursor = "grab";
       input.forward = false;
       input.back = false;
@@ -993,7 +1183,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         const worldBounds = getWorldBoundingBox(splatMesh);
         worldBoundsRef.current = worldBounds;
         placementPlaneYRef.current =
-          worldBounds.min.y + Math.max(worldBounds.getSize(new THREE.Vector3()).y * 0.02, 0.02);
+          worldBounds.min.y + Math.max(worldBounds.getSize(new THREE.Vector3()).y * 0.025, 0.08);
         moveSpeed = startingView.moveSpeed;
         lookRadius = Math.max(startingView.radius, 0.1);
         lookTarget.copy(startingView.target);
@@ -1346,7 +1536,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       >
         <div>{status}</div>
         <div style={{ opacity: 0.75 }}>
-          W/A/S/D move · drag to look · Q/E or Space to rise/fall · Shift to sprint
+          W/A/S/D move · drag to look · click object to select · drag to move · Shift+drag or [ ]
+          rotate
         </div>
         <div style={{ opacity: 0.75 }}>{dropHint}</div>
       </div>
