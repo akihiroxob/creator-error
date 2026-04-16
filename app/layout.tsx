@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "L3DGS Viewer Lab",
-  description: "L3DGS and Three.js demo landing page scaffold built with Next.js.",
+  title: "SpaceVerify | 置いてみる。確かめる。借りられる。",
+  description:
+    "置いてみる。確かめる。借りられる。空間検証型レンタルサービスのLPです。",
 };
 
 export default function RootLayout({
