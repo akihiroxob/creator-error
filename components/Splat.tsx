@@ -38,7 +38,15 @@ type SampleObject = {
   size: [number, number, number];
 };
 
+export type PlacementObjectDetail = {
+  productName: string;
+  modelNumber: string;
+  companyName: string;
+  rentalCostLabel: string;
+};
+
 export type AssetItem = {
+  detail: PlacementObjectDetail;
   id: string;
   name: string;
   previewSrc: string;
@@ -61,10 +69,31 @@ type CompassState = {
   rotationDeg: number;
 };
 
+type ObjectInteractionMode = "idle" | "selected" | "moving" | "rotating";
+type DetailVisibility = "hidden" | "visible";
+
+type PlacementObjectUserData = {
+  detail?: PlacementObjectDetail;
+  detailVisibility?: DetailVisibility;
+  dispose?: () => void;
+  interactionMode?: ObjectInteractionMode;
+  selectable?: boolean;
+  selectionIndicator?: THREE.Object3D;
+};
+
+type DetailPopupState = {
+  detail: PlacementObjectDetail;
+  screenX: number;
+  screenY: number;
+};
+
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
-// const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
-const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
+const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
+// const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
+// `SplatMesh.initialized` completes before Spark auto-inserts its renderer,
+// performs the first deferred update, and finishes the initial sort pass, so
+// the first visually valid frame can lag behind data initialization.
 const INITIAL_RENDER_WARMUP_PASSES = 6;
 const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
 
@@ -99,6 +128,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "arm-chair",
     name: "Arm Chair",
+    detail: {
+      productName: "Arm Chair",
+      modelNumber: "AC-2K",
+      companyName: "Junichi Furniture Rental",
+      rentalCostLabel: "¥12,000 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/arm_chair_2k.glb",
     previewSrc: "/asset/arm_chair_2k.jpg",
     targetSize: 0.68,
@@ -107,6 +142,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "chinese-sofa",
     name: "Chinese Sofa",
+    detail: {
+      productName: "Chinese Sofa",
+      modelNumber: "CS-2K",
+      companyName: "Junichi Furniture Rental",
+      rentalCostLabel: "¥28,000 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/chinese_sofa_2k.glb",
     previewSrc: "/asset/chinese_sofa_2k.jpg",
     targetSize: 1.05,
@@ -115,6 +156,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "clock",
     name: "Clock",
+    detail: {
+      productName: "Clock",
+      modelNumber: "CLK-2K",
+      companyName: "Junichi Props Rental",
+      rentalCostLabel: "¥4,500 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/cloc_2k.glb",
     previewSrc: "/asset/cloc_2k.jpg",
     targetSize: 0.36,
@@ -123,6 +170,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "jug",
     name: "Jug",
+    detail: {
+      productName: "Jug",
+      modelNumber: "JUG-2K",
+      companyName: "Junichi Props Rental",
+      rentalCostLabel: "¥3,200 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/jug_2k.glb",
     previewSrc: "/asset/jug_2k.jpg",
     targetSize: 0.26,
@@ -131,6 +184,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "ottoman",
     name: "Ottoman",
+    detail: {
+      productName: "Ottoman",
+      modelNumber: "OTM-2K",
+      companyName: "Junichi Furniture Rental",
+      rentalCostLabel: "¥8,000 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/Ottoman_2k.glb",
     previewSrc: "/asset/Ottoman_2k.jpg",
     targetSize: 0.46,
@@ -139,6 +198,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "painted-wooden-stool",
     name: "Painted Wooden Stool",
+    detail: {
+      productName: "Painted Wooden Stool",
+      modelNumber: "PWS-2K",
+      companyName: "Junichi Furniture Rental",
+      rentalCostLabel: "¥5,400 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/painted_wooden_stool_2k.glb",
     previewSrc: "/asset/painted_wooden_stool_2k.jpg",
     targetSize: 0.42,
@@ -147,6 +212,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "sofa",
     name: "Sofa",
+    detail: {
+      productName: "Sofa",
+      modelNumber: "SF-2K",
+      companyName: "Junichi Furniture Rental",
+      rentalCostLabel: "¥26,000 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/sofa_2k.glb",
     previewSrc: "/asset/sofa_2k.jpg",
     targetSize: 1.13,
@@ -155,6 +226,12 @@ export const ASSET_ITEMS: AssetItem[] = [
   {
     id: "steel-frame",
     name: "Steel Frame",
+    detail: {
+      productName: "Steel Frame",
+      modelNumber: "STF-2K",
+      companyName: "Junichi Display Systems",
+      rentalCostLabel: "¥15,000 / month",
+    },
     src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/steel_frame_2k.glb",
     previewSrc: "/asset/steel_frame_2k.jpg",
     targetSize: 0.9,
@@ -180,7 +257,8 @@ function attachSelectionIndicator(group: THREE.Group, radius: number) {
   indicator.position.y = 0.02;
   indicator.visible = false;
   group.add(indicator);
-  group.userData.selectionIndicator = indicator;
+  const userData = group.userData as PlacementObjectUserData;
+  userData.selectionIndicator = indicator;
 }
 
 function setObjectSelected(object: THREE.Object3D | null, selected: boolean) {
@@ -188,10 +266,73 @@ function setObjectSelected(object: THREE.Object3D | null, selected: boolean) {
     return;
   }
 
-  const indicator = object.userData.selectionIndicator;
+  const indicator = (object.userData as PlacementObjectUserData).selectionIndicator;
   if (indicator instanceof THREE.Object3D) {
     indicator.visible = selected;
   }
+}
+
+function resolveDetailVisibility(interactionMode: ObjectInteractionMode): DetailVisibility {
+  return interactionMode === "selected" ? "visible" : "hidden";
+}
+
+function setObjectInteractionMode(
+  object: THREE.Object3D | null,
+  interactionMode: ObjectInteractionMode,
+) {
+  if (!object) {
+    return;
+  }
+
+  const userData = object.userData as PlacementObjectUserData;
+  userData.interactionMode = interactionMode;
+  userData.detailVisibility = resolveDetailVisibility(interactionMode);
+}
+
+function getObjectDetail(object: THREE.Object3D | null) {
+  if (!object) {
+    return null;
+  }
+
+  return ((object.userData as PlacementObjectUserData).detail ??
+    null) as PlacementObjectDetail | null;
+}
+
+function shouldShowObjectDetail(object: THREE.Object3D | null) {
+  if (!object) {
+    return false;
+  }
+
+  const userData = object.userData as PlacementObjectUserData;
+  return userData.detailVisibility === "visible" && !!userData.detail;
+}
+
+function getObjectPopupAnchor(object: THREE.Object3D) {
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) {
+    return object.getWorldPosition(new THREE.Vector3());
+  }
+
+  const anchor = box.getCenter(new THREE.Vector3());
+  anchor.y = box.max.y + Math.max(box.getSize(new THREE.Vector3()).y * 0.04, 0.04);
+  return anchor;
+}
+
+function projectWorldPointToScreen(
+  point: THREE.Vector3,
+  camera: THREE.PerspectiveCamera,
+  container: HTMLElement,
+) {
+  const projected = point.clone().project(camera);
+  if (projected.z < -1 || projected.z > 1) {
+    return null;
+  }
+
+  const bounds = container.getBoundingClientRect();
+  return {
+    screenX: ((projected.x + 1) / 2) * bounds.width,
+    screenY: ((1 - projected.y) / 2) * bounds.height,
+  };
 }
 
 function createPlacedObject(sample: SampleObject) {
@@ -236,10 +377,13 @@ function createPlacedObject(sample: SampleObject) {
   marker.position.y = 0.015;
   group.add(marker);
   attachSelectionIndicator(group, Math.max(width, depth) * 0.92);
-  group.userData.selectable = true;
+  const userData = group.userData as PlacementObjectUserData;
+  userData.selectable = true;
+  userData.interactionMode = "idle";
+  userData.detailVisibility = "hidden";
 
-  group.userData.dispose = () => {
-    const selectionIndicator = group.userData.selectionIndicator as THREE.Mesh | undefined;
+  userData.dispose = () => {
+    const selectionIndicator = userData.selectionIndicator as THREE.Mesh | undefined;
     geometry.dispose();
     silhouette.geometry.dispose();
     marker.geometry.dispose();
@@ -340,6 +484,7 @@ function createPlacedAssetPlaceholder(asset: AssetItem, camera: THREE.Perspectiv
   );
 
   group.userData.dispose = () => {
+    const userData = group.userData as PlacementObjectUserData;
     geometry.dispose();
     panel.material.dispose();
     frame.geometry.dispose();
@@ -347,6 +492,7 @@ function createPlacedAssetPlaceholder(asset: AssetItem, camera: THREE.Perspectiv
     base.geometry.dispose();
     base.material.dispose();
     texture?.dispose();
+    userData.detailVisibility = "hidden";
   };
 
   return group;
@@ -372,8 +518,12 @@ async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveC
   const scaledSize = scaledBox.getSize(new THREE.Vector3());
   attachSelectionIndicator(group, Math.max(scaledSize.x, scaledSize.z, 0.45) * 0.58);
   orientPlacedObject(group, camera);
-  group.userData.selectable = true;
-  group.userData.dispose = () => {
+  const userData = group.userData as PlacementObjectUserData;
+  userData.detail = asset.detail;
+  userData.detailVisibility = "hidden";
+  userData.interactionMode = "idle";
+  userData.selectable = true;
+  userData.dispose = () => {
     disposeObject3D(group);
   };
   return group;
@@ -510,6 +660,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const [status, setStatus] = useState("Spark を読み込み中...");
   const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [detailPopup, setDetailPopup] = useState<DetailPopupState | null>(null);
   const [compass, setCompass] = useState<CompassState>({
     heading: "N",
     pitchDeg: 0,
@@ -730,11 +881,15 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     let lookRadius = 1;
     let dragging = false;
     let movingSelectedObject = false;
+    let pendingObjectSelection: THREE.Object3D | null = null;
     let lastPointerX = 0;
     let lastPointerY = 0;
+    let pointerDownX = 0;
+    let pointerDownY = 0;
     let renderRequested = true;
     let disposed = false;
     let splatMesh: SplatMesh | null = null;
+    const dragThresholdPx = 6;
     const onPointerLeave = () => {
       if (dragging) {
         renderer.domElement.style.cursor = "grab";
@@ -828,6 +983,52 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       renderer.render(scene, camera);
     };
 
+    const updateDetailPopup = () => {
+      const selectedObject = selectedObjectRef.current;
+      if (!container || !camera || !shouldShowObjectDetail(selectedObject)) {
+        setDetailPopup((current) => (current ? null : current));
+        return;
+      }
+      if (!selectedObject) {
+        setDetailPopup((current) => (current ? null : current));
+        return;
+      }
+
+      const detail = getObjectDetail(selectedObject);
+      if (!detail) {
+        setDetailPopup((current) => (current ? null : current));
+        return;
+      }
+
+      const projected = projectWorldPointToScreen(
+        getObjectPopupAnchor(selectedObject),
+        camera,
+        container,
+      );
+
+      if (!projected) {
+        setDetailPopup((current) => (current ? null : current));
+        return;
+      }
+
+      setDetailPopup((current) => {
+        if (
+          current &&
+          current.detail === detail &&
+          Math.abs(current.screenX - projected.screenX) < 0.5 &&
+          Math.abs(current.screenY - projected.screenY) < 0.5
+        ) {
+          return current;
+        }
+
+        return {
+          detail,
+          screenX: projected.screenX,
+          screenY: projected.screenY,
+        };
+      });
+    };
+
     const onResize = () => {
       const nextWidth = container.clientWidth;
       const nextHeight = container.clientHeight;
@@ -850,34 +1051,54 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       const hitPlacedObject = findPlacedObjectAtPointer(event.clientX, event.clientY);
       if (hitPlacedObject) {
         setObjectSelected(selectedObjectRef.current, false);
+        setObjectInteractionMode(selectedObjectRef.current, "idle");
         selectedObjectRef.current = hitPlacedObject;
         setObjectSelected(hitPlacedObject, true);
-        movingSelectedObject = true;
+        setObjectInteractionMode(hitPlacedObject, "selected");
+        pendingObjectSelection = hitPlacedObject;
         lastPointerX = event.clientX;
         lastPointerY = event.clientY;
+        pointerDownX = event.clientX;
+        pointerDownY = event.clientY;
         renderer.domElement.style.cursor = "move";
         renderer.domElement.setPointerCapture(event.pointerId);
         requestRender();
         setStatus("オブジェクトを選択しました");
-        setDropHint("選択中: ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
+        setDropHint("選択中: クリックで詳細表示 / ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
         return;
       }
 
       if (selectedObjectRef.current) {
         setObjectSelected(selectedObjectRef.current, false);
+        setObjectInteractionMode(selectedObjectRef.current, "idle");
         selectedObjectRef.current = null;
         requestRender();
       }
 
       dragging = true;
+      pendingObjectSelection = null;
       lastPointerX = event.clientX;
       lastPointerY = event.clientY;
+      pointerDownX = event.clientX;
+      pointerDownY = event.clientY;
       renderer.domElement.style.cursor = "grabbing";
       renderer.domElement.setPointerCapture(event.pointerId);
       requestRender();
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      if (pendingObjectSelection && !movingSelectedObject) {
+        const movedBeyondThreshold =
+          Math.abs(event.clientX - pointerDownX) > dragThresholdPx ||
+          Math.abs(event.clientY - pointerDownY) > dragThresholdPx;
+
+        if (movedBeyondThreshold) {
+          movingSelectedObject = true;
+          setObjectInteractionMode(pendingObjectSelection, event.shiftKey ? "rotating" : "moving");
+          setDetailPopup(null);
+        }
+      }
+
       if (movingSelectedObject) {
         const selectedObject = selectedObjectRef.current;
         const worldBounds = worldBoundsRef.current;
@@ -890,11 +1111,13 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         }
 
         if (event.shiftKey) {
+          setObjectInteractionMode(selectedObject, "rotating");
           selectedObject.rotation.y += deltaX * 0.01;
           requestRender();
           return;
         }
 
+        setObjectInteractionMode(selectedObject, "moving");
         const hitPoint = getPointerOnPlacementPlane(event.clientX, event.clientY);
 
         if (!worldBounds || !hitPoint) {
@@ -934,12 +1157,26 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     const endDrag = (event: PointerEvent) => {
       if (movingSelectedObject) {
+        setObjectInteractionMode(selectedObjectRef.current, "selected");
         movingSelectedObject = false;
+        pendingObjectSelection = null;
         renderer.domElement.style.cursor = "grab";
         if (renderer.domElement.hasPointerCapture(event.pointerId)) {
           renderer.domElement.releasePointerCapture(event.pointerId);
         }
         setStatus("オブジェクト位置を更新しました");
+        return;
+      }
+
+      if (pendingObjectSelection) {
+        setObjectInteractionMode(pendingObjectSelection, "selected");
+        pendingObjectSelection = null;
+        renderer.domElement.style.cursor = "grab";
+        if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+          renderer.domElement.releasePointerCapture(event.pointerId);
+        }
+        requestRender();
+        setStatus("オブジェクト詳細を表示します");
         return;
       }
 
@@ -954,6 +1191,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       const selectedObject = selectedObjectRef.current;
 
       if (selectedObject && (event.code === "BracketLeft" || event.code === "BracketRight")) {
+        setObjectInteractionMode(selectedObject, "rotating");
+        setDetailPopup(null);
         selectedObject.rotation.y +=
           event.code === "BracketLeft"
             ? THREE.MathUtils.degToRad(12)
@@ -1040,6 +1279,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     const clearInput = () => {
       dragging = false;
       movingSelectedObject = false;
+      pendingObjectSelection = null;
+      setObjectInteractionMode(selectedObjectRef.current, "selected");
       renderer.domElement.style.cursor = "grab";
       input.forward = false;
       input.back = false;
@@ -1100,6 +1341,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       if (needsMovement || renderRequested) {
         renderRequested = false;
         renderFrame();
+        updateDetailPopup();
       }
 
       requestAnimationFrame(animate);
@@ -1208,6 +1450,10 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           detail: "初回表示を待っています",
         });
 
+        // This warmup is a temporary guard until loading completion is tied to a
+        // render-backed signal rather than elapsed time. See
+        // docs/spark-initial-render-investigation.md for the async stages we are
+        // currently waiting out here.
         for (let pass = 1; pass <= INITIAL_RENDER_WARMUP_PASSES; pass += 1) {
           if (disposed) {
             return;
@@ -1219,7 +1465,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
             mode: "busy",
             progress: 100,
             stage: "描画中",
-            detail: `初回表示を待っています${".".repeat(pass)}`,
+            detail: `初回表示を待っています${".".repeat(pass % 4)}`,
           });
           await delay(INITIAL_RENDER_WARMUP_DELAY_MS);
         }
@@ -1278,6 +1524,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       worldBoundsRef.current = null;
       cameraRef.current = null;
       requestRenderRef.current = () => {};
+      setDetailPopup(null);
       reportLoadingState({
         active: false,
         mode: "busy",
@@ -1523,6 +1770,89 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           }}
         />
       </div>
+      {detailPopup ? (
+        <div
+          style={{
+            position: "absolute",
+            left: detailPopup.screenX,
+            top: detailPopup.screenY,
+            zIndex: 2,
+            width: 240,
+            padding: "12px 14px",
+            borderRadius: 16,
+            border: "1px solid rgba(125, 211, 252, 0.28)",
+            background:
+              "linear-gradient(180deg, rgba(8, 17, 30, 0.94) 0%, rgba(15, 23, 42, 0.9) 100%)",
+            boxShadow: "0 14px 40px rgba(2, 6, 23, 0.35)",
+            color: "#f8fafc",
+            transform: "translate(-50%, calc(-100% - 2px))",
+            pointerEvents: "none",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "rgba(125, 211, 252, 0.82)",
+            }}
+          >
+            Selected Asset
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 16,
+              fontWeight: 700,
+              lineHeight: 1.25,
+            }}
+          >
+            {detailPopup.detail.productName}
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 12,
+              color: "rgba(226, 232, 240, 0.8)",
+            }}
+          >
+            型番 {detailPopup.detail.modelNumber}
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              display: "grid",
+              gap: 8,
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            <div>
+              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>提供会社</div>
+              <div>{detailPopup.detail.companyName}</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>レンタル費用</div>
+              <div>{detailPopup.detail.rentalCostLabel}</div>
+            </div>
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: -10,
+              width: 18,
+              height: 18,
+              borderRight: "1px solid rgba(125, 211, 252, 0.28)",
+              borderBottom: "1px solid rgba(125, 211, 252, 0.28)",
+              background: "rgba(15, 23, 42, 0.92)",
+              transform: "translateX(-50%) rotate(45deg)",
+            }}
+          />
+        </div>
+      ) : null}
       <div
         style={{
           position: "absolute",
