@@ -65,6 +65,8 @@ type CompassState = {
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
 const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
+const INITIAL_RENDER_WARMUP_PASSES = 6;
+const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
 
 export const SAMPLE_OBJECTS: SampleObject[] = [
   {
@@ -1106,6 +1108,11 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       requestAnimationFrame(animate);
     };
 
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
+
     window.addEventListener("resize", onResize);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -1195,8 +1202,35 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           return;
         }
 
-        requestRender();
         setStatus(`Spark: ${splatMesh.packedSplats.numSplats.toLocaleString()} splats`);
+        reportLoadingState({
+          active: true,
+          mode: "busy",
+          progress: 100,
+          stage: "描画中",
+          detail: "初回表示を待っています",
+        });
+
+        for (let pass = 1; pass <= INITIAL_RENDER_WARMUP_PASSES; pass += 1) {
+          if (disposed) {
+            return;
+          }
+
+          requestRender();
+          reportLoadingState({
+            active: true,
+            mode: "busy",
+            progress: 100,
+            stage: "描画中",
+            detail: `初回表示を待っています${".".repeat(pass)}`,
+          });
+          await delay(INITIAL_RENDER_WARMUP_DELAY_MS);
+        }
+
+        if (disposed) {
+          return;
+        }
+
         reportLoadingState({
           active: false,
           mode: "busy",
