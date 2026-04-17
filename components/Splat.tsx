@@ -56,7 +56,6 @@ export type ViewerLoadingState = {
 };
 
 type CompassState = {
-  elevationLabel: string;
   heading: string;
   pitchDeg: number;
   rotationDeg: number;
@@ -64,7 +63,8 @@ type CompassState = {
 
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
-const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
+// const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
+const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
 const INITIAL_RENDER_WARMUP_PASSES = 6;
 const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
 
@@ -393,7 +393,6 @@ function toCompassState(direction: THREE.Vector3): CompassState {
   const index = Math.round(normalizedHeading / 45) % headings.length;
 
   return {
-    elevationLabel: Math.abs(direction.y) < 0.2 ? "LEVEL" : direction.y > 0 ? "UP" : "DOWN",
     heading: headings[index],
     pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1))),
     rotationDeg: normalizedHeading,
@@ -512,7 +511,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [compass, setCompass] = useState<CompassState>({
-    elevationLabel: "LEVEL",
     heading: "N",
     pitchDeg: 0,
     rotationDeg: 0,
@@ -815,7 +813,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       const nextCompass = toCompassState(direction);
       setCompass((current) => {
         if (
-          current.elevationLabel === nextCompass.elevationLabel &&
           current.heading === nextCompass.heading &&
           Math.abs(current.pitchDeg - nextCompass.pitchDeg) < 0.5 &&
           Math.abs(current.rotationDeg - nextCompass.rotationDeg) < 0.5
@@ -1355,7 +1352,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         style={{
           position: "absolute",
           right: 16,
-          bottom: 96,
+          bottom: 16,
           maxWidth: "calc(100vw - 32px)",
           minHeight: 0,
           zIndex: 1,
@@ -1369,17 +1366,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           WebkitBackdropFilter: "blur(10px)",
         }}
       >
-        <div
-          style={{
-            marginBottom: 8,
-            fontSize: 11,
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "rgba(125, 211, 252, 0.88)",
-          }}
-        >
-          Direction
-        </div>
         <div
           aria-label={`現在の向き ${compass.heading}`}
           style={{
@@ -1529,17 +1515,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
               transform: "translate(-50%, -50%)",
             }}
           />
-        </div>
-        <div
-          style={{
-            marginTop: 10,
-            textAlign: "center",
-            fontSize: 20,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-          }}
-        >
-          {compass.heading}
         </div>
         <div
           style={{

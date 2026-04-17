@@ -64,12 +64,11 @@ export default function SparkDemoPage() {
       <header className="viewer-header">
         <div className="viewer-brand">
           <div className="viewer-logo-slot" aria-label="logo placeholder">
-            <span>L</span>
+            <img src="/img/logo.png" alt="Junichi's WorkStudio" width={48} height={48} />
           </div>
           <div className="viewer-brand-copy">
-            <p className="viewer-brand-eyebrow">Logo Space</p>
-            <strong>L3DGS Viewer Lab</strong>
-            <span>ロゴやブランド名、プロジェクト識別子を配置できる領域</span>
+            <strong>Junichi's WorkStudio</strong>
+            <span>最近引っ越しをしたコンクリート打ちっぱなしのデザイナーズ</span>
           </div>
         </div>
         <div className="viewer-header-nav" aria-label="header menu">
