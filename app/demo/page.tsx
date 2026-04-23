@@ -5,6 +5,7 @@ import { SparkScene, type ViewerLoadingState } from "@/components/Splat";
 
 export default function SparkDemoPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const [showCollisionMesh, setShowCollisionMesh] = useState(false);
   const [viewerLoading, setViewerLoading] = useState<ViewerLoadingState>({
     active: true,
@@ -71,6 +72,7 @@ export default function SparkDemoPage() {
         <div className="viewer-card viewer-card-fullscreen">
           <SparkScene
             onLoadingStateChange={setViewerLoading}
+            soundEnabled={soundEnabled}
             showCollisionMesh={showCollisionMesh}
           />
         </div>
@@ -92,12 +94,21 @@ export default function SparkDemoPage() {
             <span>Collision Mesh</span>
             <strong>{showCollisionMesh ? "ON" : "OFF"}</strong>
           </button>
+          <button
+            className={`debug-toggle${soundEnabled ? " is-active" : ""}`}
+            type="button"
+            onClick={() => setSoundEnabled((current) => !current)}
+          >
+            <span>Spatial Sound</span>
+            <strong>{soundEnabled ? "ON" : "OFF"}</strong>
+          </button>
 
           <div className="sidebar-note">
             <p>操作</p>
             <ul>
               <li>W/A/S/D で移動</li>
               <li>ドラッグで視点回転</li>
+              <li>Spatial Sound で距離減衰する音を再生</li>
               <li>Collision Mesh で判定用メッシュを表示</li>
             </ul>
           </div>

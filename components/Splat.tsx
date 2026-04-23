@@ -101,6 +101,28 @@ const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
 const CAMERA_COLLISION_RADIUS = 0.22;
 const CAMERA_COLLISION_HEIGHT = 1.45;
 const COLLISION_MESH_ROTATION = new THREE.Euler(-Math.PI / 2, 0, Math.PI, "XYZ");
+const POSITIONAL_AUDIO_SOURCES = [
+  {
+    loop: true,
+    maxDistance: 5.8,
+    name: "stream",
+    refDistance: 0.9,
+    rolloffFactor: 1.7,
+    url: "/asset/stream.wav",
+    volume: 0.85,
+    worldOffset: new THREE.Vector3(-0.95, 0.85, -1.25),
+  },
+  {
+    loop: true,
+    maxDistance: 4.8,
+    name: "chime",
+    refDistance: 0.75,
+    rolloffFactor: 1.9,
+    url: "/asset/chime.wav",
+    volume: 0.58,
+    worldOffset: new THREE.Vector3(0.95, 1.05, 1.15),
+  },
+] as const;
 
 export const SAMPLE_OBJECTS: SampleObject[] = [
   {
@@ -246,6 +268,7 @@ export const ASSET_ITEMS: AssetItem[] = [
 
 type SparkSceneProps = {
   onLoadingStateChange?: (state: ViewerLoadingState) => void;
+  soundEnabled?: boolean;
   showCollisionMesh?: boolean;
 };
 
@@ -605,6 +628,19 @@ function collidesWithRoom(
   });
 }
 
+function createAudioMarker(name: string) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color: name === "stream" ? "#38bdf8" : "#facc15",
+      transparent: true,
+      opacity: 0.82,
+    }),
+  );
+  marker.name = `audio-marker-${name}`;
+  return marker;
+}
+
 function toCompassState(direction: THREE.Vector3): CompassState {
   const normalizedHeading = THREE.MathUtils.euclideanModulo(
     THREE.MathUtils.radToDeg(Math.atan2(direction.x, -direction.z)),
@@ -718,10 +754,15 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
   };
 }
 
-export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: SparkSceneProps) {
+export function SparkScene({
+  onLoadingStateChange,
+  soundEnabled = false,
+  showCollisionMesh = false,
+}: SparkSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const collisionRoomRef = useRef<THREE.Object3D | null>(null);
+  const positionalAudioRef = useRef<THREE.PositionalAudio[]>([]);
   const worldBoundsRef = useRef<THREE.Box3 | null>(null);
   const placementLayerRef = useRef<THREE.Group | null>(null);
   const placementPlaneYRef = useRef(0);
@@ -750,6 +791,18 @@ export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: 
     collisionRoom.visible = showCollisionMesh;
     requestRenderRef.current();
   }, [showCollisionMesh]);
+
+  useEffect(() => {
+    for (const audio of positionalAudioRef.current) {
+      if (soundEnabled) {
+        if (!audio.isPlaying && audio.buffer) {
+          audio.play();
+        }
+      } else if (audio.isPlaying) {
+        audio.pause();
+      }
+    }
+  }, [soundEnabled]);
 
   const reportLoadingState = (state: ViewerLoadingState) => {
     const nextRank = state.active ? (state.mode === "progress" ? 1 : 2) : 3;
@@ -912,6 +965,8 @@ export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: 
 
     const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 100);
     cameraRef.current = camera;
+    const audioListener = new THREE.AudioListener();
+    camera.add(audioListener);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: false,
@@ -975,6 +1030,7 @@ export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: 
     let splatMesh: SplatMesh | null = null;
     let collisionRoom: THREE.Object3D | null = null;
     let collisionMeshes: THREE.Mesh[] = [];
+    const audioObjects: THREE.Object3D[] = [];
     const dragThresholdPx = 6;
     const onPointerLeave = () => {
       if (dragging) {
@@ -1575,6 +1631,49 @@ export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: 
           return;
         }
 
+        const audioLoader = new THREE.AudioLoader();
+        const roomCenter = worldBounds.getCenter(new THREE.Vector3());
+        const roomSize = worldBounds.getSize(new THREE.Vector3());
+        const audioEntries = await Promise.all(
+          POSITIONAL_AUDIO_SOURCES.map(async (source) => {
+            const buffer = await audioLoader.loadAsync(source.url);
+            return { buffer, source };
+          }),
+        );
+
+        if (disposed) {
+          return;
+        }
+
+        for (const { buffer, source } of audioEntries) {
+          const holder = new THREE.Object3D();
+          holder.name = `audio-source-${source.name}`;
+          holder.position.copy(roomCenter).add(
+            new THREE.Vector3(
+              source.worldOffset.x * roomSize.x * 0.32,
+              source.worldOffset.y,
+              source.worldOffset.z * roomSize.z * 0.32,
+            ),
+          );
+
+          const audio = new THREE.PositionalAudio(audioListener);
+          audio.setBuffer(buffer);
+          audio.setLoop(source.loop);
+          audio.setVolume(source.volume);
+          audio.setRefDistance(source.refDistance);
+          audio.setMaxDistance(source.maxDistance);
+          audio.setRolloffFactor(source.rolloffFactor);
+          holder.add(audio);
+          holder.add(createAudioMarker(source.name));
+          scene.add(holder);
+          audioObjects.push(holder);
+          positionalAudioRef.current.push(audio);
+
+          if (soundEnabled && !audio.isPlaying) {
+            audio.play();
+          }
+        }
+
         setStatus(`Spark: ${splatMesh.context.splats.getNumSplats().toLocaleString()} splats`);
         reportLoadingState({
           active: true,
@@ -1652,6 +1751,16 @@ export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: 
           dispose();
         }
       });
+      for (const audio of positionalAudioRef.current) {
+        if (audio.isPlaying) {
+          audio.stop();
+        }
+        audio.disconnect();
+      }
+      positionalAudioRef.current = [];
+      for (const object of audioObjects) {
+        scene.remove(object);
+      }
       splatMesh?.dispose();
       if (collisionRoom) {
         disposeObject3D(collisionRoom);
