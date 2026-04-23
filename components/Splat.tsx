@@ -76,6 +76,7 @@ type PlacementObjectUserData = {
   detail?: PlacementObjectDetail;
   detailVisibility?: DetailVisibility;
   dispose?: () => void;
+  originalMaterial?: THREE.Material | THREE.Material[];
   interactionMode?: ObjectInteractionMode;
   selectable?: boolean;
   selectionIndicator?: THREE.Object3D;
@@ -90,12 +91,16 @@ type DetailPopupState = {
 export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
 const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
+const COLLISION_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/room_edit.glb";
 // const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
 // `SplatMesh.initialized` completes before SparkRenderer performs the first
 // deferred update and finishes the initial sort pass, so the first visually
 // valid frame can lag behind data initialization.
 const INITIAL_RENDER_WARMUP_PASSES = 6;
 const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
+const CAMERA_COLLISION_RADIUS = 0.22;
+const CAMERA_COLLISION_HEIGHT = 1.45;
+const COLLISION_MESH_ROTATION = new THREE.Euler(-Math.PI / 2, 0, Math.PI, "XYZ");
 
 export const SAMPLE_OBJECTS: SampleObject[] = [
   {
@@ -241,6 +246,7 @@ export const ASSET_ITEMS: AssetItem[] = [
 
 type SparkSceneProps = {
   onLoadingStateChange?: (state: ViewerLoadingState) => void;
+  showCollisionMesh?: boolean;
 };
 
 function attachSelectionIndicator(group: THREE.Group, radius: number) {
@@ -534,6 +540,71 @@ function getWorldBoundingBox(object: SplatMesh) {
   return object.getBoundingBox().clone().applyMatrix4(object.matrixWorld);
 }
 
+function collectCollisionMeshes(object: THREE.Object3D) {
+  const meshes: THREE.Mesh[] = [];
+  const debugMaterial = new THREE.MeshBasicMaterial({
+    color: "#38bdf8",
+    transparent: true,
+    opacity: 0.24,
+    wireframe: true,
+    depthWrite: false,
+  });
+
+  object.updateMatrixWorld(true);
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const userData = child.userData as PlacementObjectUserData;
+    userData.originalMaterial = child.material;
+    child.material = debugMaterial;
+    meshes.push(child);
+  });
+
+  return meshes;
+}
+
+function collidesWithRoom(
+  currentPosition: THREE.Vector3,
+  nextPosition: THREE.Vector3,
+  collisionMeshes: THREE.Mesh[],
+) {
+  if (collisionMeshes.length === 0) {
+    return false;
+  }
+
+  const delta = nextPosition.clone().sub(currentPosition);
+  const distance = delta.length();
+  if (distance <= 0) {
+    return false;
+  }
+
+  const direction = delta.divideScalar(distance);
+  const side = new THREE.Vector3(-direction.z, 0, direction.x);
+  if (side.lengthSq() > 0) {
+    side.normalize();
+  }
+
+  const up = new THREE.Vector3(0, 1, 0);
+  const raycaster = new THREE.Raycaster();
+  raycaster.near = 0;
+  raycaster.far = distance + CAMERA_COLLISION_RADIUS;
+
+  const origins = [
+    currentPosition,
+    currentPosition.clone().addScaledVector(side, CAMERA_COLLISION_RADIUS),
+    currentPosition.clone().addScaledVector(side, -CAMERA_COLLISION_RADIUS),
+    currentPosition.clone().addScaledVector(up, CAMERA_COLLISION_HEIGHT * 0.35),
+    currentPosition.clone().addScaledVector(up, -CAMERA_COLLISION_HEIGHT * 0.35),
+  ];
+
+  return origins.some((origin) => {
+    raycaster.set(origin, direction);
+    return raycaster.intersectObjects(collisionMeshes, false).length > 0;
+  });
+}
+
 function toCompassState(direction: THREE.Vector3): CompassState {
   const normalizedHeading = THREE.MathUtils.euclideanModulo(
     THREE.MathUtils.radToDeg(Math.atan2(direction.x, -direction.z)),
@@ -647,18 +718,20 @@ function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh)
   };
 }
 
-export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
+export function SparkScene({ onLoadingStateChange, showCollisionMesh = false }: SparkSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const collisionRoomRef = useRef<THREE.Object3D | null>(null);
   const worldBoundsRef = useRef<THREE.Box3 | null>(null);
   const placementLayerRef = useRef<THREE.Group | null>(null);
   const placementPlaneYRef = useRef(0);
   const requestRenderRef = useRef<() => void>(() => {});
   const raycasterRef = useRef(new THREE.Raycaster());
+  const showCollisionMeshRef = useRef(false);
   const loadingPhaseRankRef = useRef(0);
   const selectedObjectRef = useRef<THREE.Object3D | null>(null);
   const [status, setStatus] = useState("Spark を読み込み中...");
-  const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
+  const [dropHint, setDropHint] = useState("");
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [detailPopup, setDetailPopup] = useState<DetailPopupState | null>(null);
   const [compass, setCompass] = useState<CompassState>({
@@ -666,6 +739,17 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     pitchDeg: 0,
     rotationDeg: 0,
   });
+
+  useEffect(() => {
+    showCollisionMeshRef.current = showCollisionMesh;
+    const collisionRoom = collisionRoomRef.current;
+    if (!collisionRoom) {
+      return;
+    }
+
+    collisionRoom.visible = showCollisionMesh;
+    requestRenderRef.current();
+  }, [showCollisionMesh]);
 
   const reportLoadingState = (state: ViewerLoadingState) => {
     const nextRank = state.active ? (state.mode === "progress" ? 1 : 2) : 3;
@@ -889,6 +973,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     let renderRequested = true;
     let disposed = false;
     let splatMesh: SplatMesh | null = null;
+    let collisionRoom: THREE.Object3D | null = null;
+    let collisionMeshes: THREE.Mesh[] = [];
     const dragThresholdPx = 6;
     const onPointerLeave = () => {
       if (dragging) {
@@ -1327,10 +1413,30 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       if (movement.lengthSq() > 0) {
         movement.normalize();
         const speed = moveSpeed * (input.faster ? 2.4 : 1);
-        camera.position.addScaledVector(movement, speed * deltaSeconds);
-        lookTarget.addScaledVector(movement, speed * deltaSeconds);
+        const delta = movement.clone().multiplyScalar(speed * deltaSeconds);
+        const nextPosition = camera.position.clone().add(delta);
+        const resolvedPosition = camera.position.clone();
+
+        nextPosition.copy(camera.position).add(new THREE.Vector3(delta.x, 0, 0));
+        if (!collidesWithRoom(camera.position, nextPosition, collisionMeshes)) {
+          resolvedPosition.x = nextPosition.x;
+        }
+
+        nextPosition.copy(resolvedPosition).add(new THREE.Vector3(0, delta.y, 0));
+        if (!collidesWithRoom(resolvedPosition, nextPosition, collisionMeshes)) {
+          resolvedPosition.y = nextPosition.y;
+        }
+
+        nextPosition.copy(resolvedPosition).add(new THREE.Vector3(0, 0, delta.z));
+        if (!collidesWithRoom(resolvedPosition, nextPosition, collisionMeshes)) {
+          resolvedPosition.z = nextPosition.z;
+        }
+
+        const actualDelta = resolvedPosition.sub(camera.position);
+        camera.position.add(actualDelta);
+        lookTarget.add(actualDelta);
         camera.lookAt(lookTarget);
-        moved = true;
+        moved = actualDelta.lengthSq() > 0;
       }
 
       return moved;
@@ -1442,6 +1548,33 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           return;
         }
 
+        reportLoadingState({
+          active: true,
+          mode: "busy",
+          progress: 100,
+          stage: "衝突判定を準備中",
+          detail: "部屋メッシュを読み込んでいます",
+        });
+
+        const collisionGltf = await new GLTFLoader().loadAsync(COLLISION_ASSET_URL);
+
+        if (disposed) {
+          disposeObject3D(collisionGltf.scene);
+          return;
+        }
+
+        collisionRoom = collisionGltf.scene;
+        collisionRoom.rotation.copy(COLLISION_MESH_ROTATION);
+        collisionRoom.updateMatrixWorld(true);
+        collisionMeshes = collectCollisionMeshes(collisionRoom);
+        collisionRoom.visible = showCollisionMeshRef.current;
+        collisionRoomRef.current = collisionRoom;
+        scene.add(collisionRoom);
+
+        if (disposed) {
+          return;
+        }
+
         setStatus(`Spark: ${splatMesh.context.splats.getNumSplats().toLocaleString()} splats`);
         reportLoadingState({
           active: true,
@@ -1520,10 +1653,14 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         }
       });
       splatMesh?.dispose();
+      if (collisionRoom) {
+        disposeObject3D(collisionRoom);
+      }
       renderer.dispose();
       placementLayerRef.current = null;
       worldBoundsRef.current = null;
       cameraRef.current = null;
+      collisionRoomRef.current = null;
       requestRenderRef.current = () => {};
       setDetailPopup(null);
       reportLoadingState({

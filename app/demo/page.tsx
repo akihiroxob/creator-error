@@ -1,16 +1,11 @@
 "use client";
 
-import { useEffect, useState, type DragEvent } from "react";
-import {
-  ASSET_ITEMS,
-  ASSET_ITEM_TRANSFER_TYPE,
-  SparkScene,
-  type ViewerLoadingState,
-} from "@/components/Splat";
+import { useState } from "react";
+import { SparkScene, type ViewerLoadingState } from "@/components/Splat";
 
 export default function SparkDemoPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [objectsReady, setObjectsReady] = useState(false);
+  const [showCollisionMesh, setShowCollisionMesh] = useState(false);
   const [viewerLoading, setViewerLoading] = useState<ViewerLoadingState>({
     active: true,
     mode: "progress",
@@ -18,19 +13,6 @@ export default function SparkDemoPage() {
     stage: "ダウンロード中",
     detail: "PLY アセットを取得しています",
   });
-
-  const handleDragStart = (event: DragEvent<HTMLButtonElement>, assetId: string) => {
-    event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData(ASSET_ITEM_TRANSFER_TYPE, assetId);
-  };
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setObjectsReady(true);
-    }, 120);
-
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const progress = Math.round(Math.max(0, Math.min(100, viewerLoading.progress)));
   const overlayActive = viewerLoading.active;
@@ -87,48 +69,36 @@ export default function SparkDemoPage() {
       </header>
       <section className="viewer-stage">
         <div className="viewer-card viewer-card-fullscreen">
-          <SparkScene onLoadingStateChange={setViewerLoading} />
+          <SparkScene
+            onLoadingStateChange={setViewerLoading}
+            showCollisionMesh={showCollisionMesh}
+          />
         </div>
         <aside
           id="asset-menu"
           className={`info-card info-card-floating${isMenuOpen ? " is-open" : ""}`}
         >
           <div className="sidebar-header">
-            <p className="sidebar-eyebrow">Asset Library</p>
-            <h1>Real Assets</h1>
-            <p>
-              ハンバーガーメニューから実アセット一覧を開き、画像をドラッグすると Canvas
-              上へ板ポリとして配置します。
-            </p>
+            <p className="sidebar-eyebrow">Debug</p>
+            <h1>Viewer</h1>
+            <p>衝突判定に使っている GLB メッシュを表示できます。</p>
           </div>
 
-          <div className="sample-list">
-            {ASSET_ITEMS.map((asset) => (
-              <button
-                key={asset.id}
-                className="sample-card"
-                draggable
-                onDragStart={(event) => handleDragStart(event, asset.id)}
-                type="button"
-              >
-                <span
-                  className="asset-thumb"
-                  style={{ backgroundImage: `url(${asset.previewSrc})` }}
-                />
-                <span className="sample-meta">
-                  <strong>{asset.name}</strong>
-                  <span>{asset.type === "glb" ? "3D model" : asset.type}</span>
-                </span>
-              </button>
-            ))}
-          </div>
+          <button
+            className={`debug-toggle${showCollisionMesh ? " is-active" : ""}`}
+            type="button"
+            onClick={() => setShowCollisionMesh((current) => !current)}
+          >
+            <span>Collision Mesh</span>
+            <strong>{showCollisionMesh ? "ON" : "OFF"}</strong>
+          </button>
 
           <div className="sidebar-note">
             <p>操作</p>
             <ul>
-              <li>右上のハンバーガーで一覧を開閉</li>
-              <li>GLB をドラッグして Canvas へドロップ</li>
-              <li>配置後も移動操作を継続可能</li>
+              <li>W/A/S/D で移動</li>
+              <li>ドラッグで視点回転</li>
+              <li>Collision Mesh で判定用メッシュを表示</li>
             </ul>
           </div>
         </aside>
