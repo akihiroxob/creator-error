@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SplatLoader, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
@@ -91,9 +91,9 @@ export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
 export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
 const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
 // const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
-// `SplatMesh.initialized` completes before Spark auto-inserts its renderer,
-// performs the first deferred update, and finishes the initial sort pass, so
-// the first visually valid frame can lag behind data initialization.
+// `SplatMesh.initialized` completes before SparkRenderer performs the first
+// deferred update and finishes the initial sort pass, so the first visually
+// valid frame can lag behind data initialization.
 const INITIAL_RENDER_WARMUP_PASSES = 6;
 const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
 
@@ -901,6 +901,12 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
     requestRenderRef.current = requestRender;
 
+    const sparkRenderer = new SparkRenderer({
+      renderer,
+      onDirty: requestRender,
+    });
+    scene.add(sparkRenderer);
+
     const getPointerOnPlacementPlane = (clientX: number, clientY: number) => {
       const containerBounds = container.getBoundingClientRect();
       if (containerBounds.width <= 0 || containerBounds.height <= 0) {
@@ -1365,7 +1371,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     void (async () => {
       try {
         loadingPhaseRankRef.current = 0;
-        const loader = new SplatLoader();
         setStatus("Spark で 3sdgs_room.ply を読み込み中...");
         reportLoadingState({
           active: true,
@@ -1375,38 +1380,34 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           detail: "PLY アセットを取得しています",
         });
 
-        const packedSplats = await loader.loadAsync(SPARK_ASSET_URL, (event) => {
-          const total = event.total && event.total > 0 ? event.total : event.loaded || 1;
-          const ratio = total > 0 ? event.loaded / total : 0;
-          const percent = Math.min(100, Math.max(0, ratio * 100));
+        const mesh = new SplatMesh({
+          url: SPARK_ASSET_URL,
+          onProgress: (event) => {
+            const total = event.total && event.total > 0 ? event.total : event.loaded || 1;
+            const ratio = total > 0 ? event.loaded / total : 0;
+            const percent = Math.min(100, Math.max(0, ratio * 100));
 
-          reportLoadingState({
-            active: true,
-            mode: "progress",
-            progress: percent,
-            stage: "ダウンロード中",
-            detail: `PLY アセットを取得しています`,
-          });
-
-          if (percent >= 100) {
             reportLoadingState({
               active: true,
-              mode: "busy",
-              progress: 100,
-              stage: "読み込み中",
-              detail: "PLY データをメッシュへ変換しています",
+              mode: "progress",
+              progress: percent,
+              stage: "ダウンロード中",
+              detail: `PLY アセットを取得しています`,
             });
-          }
+
+            if (percent >= 100) {
+              reportLoadingState({
+                active: true,
+                mode: "busy",
+                progress: 100,
+                stage: "読み込み中",
+                detail: "PLY データをメッシュへ変換しています",
+              });
+            }
+          },
         });
 
-        if (disposed) {
-          packedSplats.dispose();
-          return;
-        }
-
-        splatMesh = await new SplatMesh({
-          packedSplats,
-        }).initialized;
+        splatMesh = await mesh.initialized;
 
         if (disposed) {
           splatMesh.dispose();
@@ -1441,7 +1442,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           return;
         }
 
-        setStatus(`Spark: ${splatMesh.packedSplats.numSplats.toLocaleString()} splats`);
+        setStatus(`Spark: ${splatMesh.context.splats.getNumSplats().toLocaleString()} splats`);
         reportLoadingState({
           active: true,
           mode: "busy",
