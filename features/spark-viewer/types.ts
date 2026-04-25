@@ -1,5 +1,1 @@
-export type {
-  AssetItem,
-  PlacementObjectDetail,
-  ViewerLoadingState,
-} from "./components/SparkScene";
+export type { ViewerLoadingState } from "./components/SparkScene";

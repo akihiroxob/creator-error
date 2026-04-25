@@ -1,5 +1,64 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { ViewerHud } from "@/components/viewer/ViewerHud";
+import type {
+  CompassState,
+  JoystickVector,
+  PlacementObjectDetail,
+} from "@/components/viewer/types";
+import {
+  ASSET_ITEM_TRANSFER_TYPE,
+  COLLISION_ASSET_URL,
+  COLLISION_MESH_ROTATION,
+  INITIAL_RENDER_WARMUP_DELAY_MS,
+  INITIAL_RENDER_WARMUP_PASSES,
+  POSITIONAL_AUDIO_SOURCES,
+  SAMPLE_OBJECT_TRANSFER_TYPE,
+  SPARK_ASSET_URL,
+} from "@/components/viewer/sceneConstants";
+import {
+  collectCollisionMeshes,
+  collidesWithRoom,
+  createAudioMarker,
+  createPlacedAssetPlaceholder,
+  createPlacedGlbAsset,
+  createPlacedObject,
+  disposeObject3D,
+  getObjectDetail,
+  getObjectPopupAnchor,
+  getWorldBoundingBox,
+  prepareStartingView,
+  projectWorldPointToScreen,
+  setObjectInteractionMode,
+  setObjectSelected,
+  shouldShowObjectDetail,
+  toCompassState,
+} from "@/components/viewer/sceneHelpers";
+import { useViewerUiStore } from "@/stores/viewerUiStore";
+import type {
+  AssetItem,
+  InputState,
+  MovementControlKey,
+  OrientationState,
+  SparkSceneProps,
+  ViewerLoadingState,
+} from "@/components/viewer/sceneTypes";
+
+export type { ViewerLoadingState } from "@/components/viewer/sceneTypes";
+
+export function SparkScene({
+  onLoadingStateChange,
+  soundEnabled = false,
+  showCollisionMesh = false,
+}: SparkSceneProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const collisionRoomRef = useRef<THREE.Object3D | null>(null);
+  const positionalAudioRef = useRef<THREE.PositionalAudio[]>([]);
 import { useEffect, useRef, useState } from "react";
 import { SplatLoader, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
@@ -654,18 +713,50 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   const placementLayerRef = useRef<THREE.Group | null>(null);
   const placementPlaneYRef = useRef(0);
   const requestRenderRef = useRef<() => void>(() => {});
+  const inputStateRef = useRef<InputState>({
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    faster: false,
+  });
+  const movementJoystickRef = useRef<JoystickVector>({ x: 0, y: 0 });
   const raycasterRef = useRef(new THREE.Raycaster());
+  const showCollisionMeshRef = useRef(false);
   const loadingPhaseRankRef = useRef(0);
   const selectedObjectRef = useRef<THREE.Object3D | null>(null);
-  const [status, setStatus] = useState("Spark を読み込み中...");
-  const [dropHint, setDropHint] = useState("サイドメニューから部屋へドラッグして配置");
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [detailPopup, setDetailPopup] = useState<DetailPopupState | null>(null);
-  const [compass, setCompass] = useState<CompassState>({
-    heading: "N",
-    pitchDeg: 0,
-    rotationDeg: 0,
-  });
+  const setCompass = useViewerUiStore((state) => state.setCompass);
+  const setDetailPopup = useViewerUiStore((state) => state.setDetailPopup);
+  const setDropHint = useViewerUiStore((state) => state.setDropHint);
+  const setIsDraggingOver = useViewerUiStore((state) => state.setIsDraggingOver);
+  const setJoystickOffset = useViewerUiStore((state) => state.setJoystickOffset);
+  const setStatus = useViewerUiStore((state) => state.setStatus);
+  const resetViewerUi = useViewerUiStore((state) => state.reset);
+
+  useEffect(() => {
+    showCollisionMeshRef.current = showCollisionMesh;
+    const collisionRoom = collisionRoomRef.current;
+    if (!collisionRoom) {
+      return;
+    }
+
+    collisionRoom.visible = showCollisionMesh;
+    requestRenderRef.current();
+  }, [showCollisionMesh]);
+
+  useEffect(() => {
+    for (const audio of positionalAudioRef.current) {
+      if (soundEnabled) {
+        if (!audio.isPlaying && audio.buffer) {
+          audio.play();
+        }
+      } else if (audio.isPlaying) {
+        audio.pause();
+      }
+    }
+  }, [soundEnabled]);
 
   const reportLoadingState = (state: ViewerLoadingState) => {
     const nextRank = state.active ? (state.mode === "progress" ? 1 : 2) : 3;
@@ -682,138 +773,23 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     });
   };
 
-  const placeSampleObject = (sampleId: string, clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    const camera = cameraRef.current;
-    const placementLayer = placementLayerRef.current;
-    const worldBounds = worldBoundsRef.current;
-
-    if (!container || !camera || !placementLayer || !worldBounds) {
-      return;
-    }
-
-    const sample = SAMPLE_OBJECTS.find((item) => item.id === sampleId);
-    if (!sample) {
-      return;
-    }
-
-    const bounds = container.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      return;
-    }
-
-    const pointer = new THREE.Vector2(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((clientY - bounds.top) / bounds.height) * 2 + 1,
-    );
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
-    const hitPoint = new THREE.Vector3();
-    raycasterRef.current.setFromCamera(pointer, camera);
-
-    if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
-      return;
-    }
-
-    const [width, , depth] = sample.size;
-    const marginX = width * 0.55;
-    const marginZ = depth * 0.55;
-    hitPoint.x = THREE.MathUtils.clamp(
-      hitPoint.x,
-      worldBounds.min.x + marginX,
-      worldBounds.max.x - marginX,
-    );
-    hitPoint.z = THREE.MathUtils.clamp(
-      hitPoint.z,
-      worldBounds.min.z + marginZ,
-      worldBounds.max.z - marginZ,
-    );
-    hitPoint.y = placementPlaneYRef.current;
-
-    const placedObject = createPlacedObject(sample);
-    placedObject.position.copy(hitPoint);
-    placementLayer.add(placedObject);
-    setObjectSelected(selectedObjectRef.current, false);
-    selectedObjectRef.current = placedObject;
-    setObjectSelected(placedObject, true);
+  const setMovementControl = (key: MovementControlKey, active: boolean) => {
+    inputStateRef.current[key] = active;
     requestRenderRef.current();
-
-    setStatus(`${sample.name} を配置しました`);
-    setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
   };
 
-  const placeAssetItem = async (assetId: string, clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    const camera = cameraRef.current;
-    const placementLayer = placementLayerRef.current;
-    const worldBounds = worldBoundsRef.current;
+  const endMovementControl = (key: MovementControlKey) => {
+    setMovementControl(key, false);
+  };
 
-    if (!container || !camera || !placementLayer || !worldBounds) {
-      return;
-    }
-
-    const asset = ASSET_ITEMS.find((item) => item.id === assetId);
-    if (!asset) {
-      return;
-    }
-
-    const bounds = container.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      return;
-    }
-
-    const pointer = new THREE.Vector2(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((clientY - bounds.top) / bounds.height) * 2 + 1,
-    );
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
-    const hitPoint = new THREE.Vector3();
-    raycasterRef.current.setFromCamera(pointer, camera);
-
-    if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
-      return;
-    }
-
-    hitPoint.x = THREE.MathUtils.clamp(
-      hitPoint.x,
-      worldBounds.min.x + 0.8,
-      worldBounds.max.x - 0.8,
-    );
-    hitPoint.z = THREE.MathUtils.clamp(
-      hitPoint.z,
-      worldBounds.min.z + 0.8,
-      worldBounds.max.z - 0.8,
-    );
-    hitPoint.y = placementPlaneYRef.current;
-
-    const placeholder = createPlacedAssetPlaceholder(asset, camera);
-    placeholder.position.copy(hitPoint);
-    placementLayer.add(placeholder);
+  const setMovementJoystick = (next: JoystickVector) => {
+    movementJoystickRef.current = next;
+    setJoystickOffset(next);
     requestRenderRef.current();
-    setStatus(`${asset.name} を読み込み中...`);
+  };
 
-    try {
-      const placedAsset = await createPlacedGlbAsset(asset, camera);
-      if (!placementLayer.children.includes(placeholder)) {
-        placedAsset.userData.dispose?.();
-        return;
-      }
-      const disposePlaceholder = placeholder.userData.dispose;
-      if (typeof disposePlaceholder === "function") {
-        disposePlaceholder();
-      }
-      placementLayer.remove(placeholder);
-      placedAsset.position.copy(hitPoint);
-      placementLayer.add(placedAsset);
-      setObjectSelected(selectedObjectRef.current, false);
-      selectedObjectRef.current = placedAsset;
-      setObjectSelected(placedAsset, true);
-      requestRenderRef.current();
-      setStatus(`${asset.name} を配置しました`);
-      setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
-    } catch {
-      setStatus(`${asset.name} の読み込みに失敗しました`);
-      setDropHint("アセット形式を確認してください");
-    }
+  const resetMovementJoystick = () => {
+    setMovementJoystick({ x: 0, y: 0 });
   };
 
   useEffect(() => {
@@ -828,6 +804,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 100);
     cameraRef.current = camera;
+    const audioListener = new THREE.AudioListener();
+    camera.add(audioListener);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: false,
@@ -853,15 +831,14 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     placementLayerRef.current = placementLayer;
     scene.add(placementLayer);
 
-    const input: InputState = {
-      forward: false,
-      back: false,
-      left: false,
-      right: false,
-      up: false,
-      down: false,
-      faster: false,
-    };
+    const input = inputStateRef.current;
+    input.forward = false;
+    input.back = false;
+    input.left = false;
+    input.right = false;
+    input.up = false;
+    input.down = false;
+    input.faster = false;
 
     const orientation: OrientationState = {
       yaw: 0,
@@ -889,6 +866,9 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     let renderRequested = true;
     let disposed = false;
     let splatMesh: SplatMesh | null = null;
+    let collisionRoom: THREE.Object3D | null = null;
+    let collisionMeshes: THREE.Mesh[] = [];
+    const audioObjects: THREE.Object3D[] = [];
     const dragThresholdPx = 6;
     const onPointerLeave = () => {
       if (dragging) {
@@ -901,6 +881,11 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
     requestRenderRef.current = requestRender;
 
+    const sparkRenderer = new SparkRenderer({
+      renderer,
+      onDirty: requestRender,
+    });
+    scene.add(sparkRenderer);
     const getPointerOnPlacementPlane = (clientX: number, clientY: number) => {
       const containerBounds = container.getBoundingClientRect();
       if (containerBounds.width <= 0 || containerBounds.height <= 0) {
@@ -1289,6 +1274,7 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       input.up = false;
       input.down = false;
       input.faster = false;
+      resetMovementJoystick();
     };
 
     const updateMovement = (deltaSeconds: number) => {
@@ -1317,14 +1303,40 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       if (input.left) movement.addScaledVector(rightVector, -1);
       if (input.up) movement.y += 1;
       if (input.down) movement.y -= 1;
+      if (movementJoystickRef.current.y !== 0) {
+        movement.addScaledVector(forwardVector, -movementJoystickRef.current.y);
+      }
+      if (movementJoystickRef.current.x !== 0) {
+        movement.addScaledVector(rightVector, movementJoystickRef.current.x);
+      }
 
       if (movement.lengthSq() > 0) {
         movement.normalize();
         const speed = moveSpeed * (input.faster ? 2.4 : 1);
-        camera.position.addScaledVector(movement, speed * deltaSeconds);
-        lookTarget.addScaledVector(movement, speed * deltaSeconds);
+        const delta = movement.clone().multiplyScalar(speed * deltaSeconds);
+        const nextPosition = camera.position.clone().add(delta);
+        const resolvedPosition = camera.position.clone();
+
+        nextPosition.copy(camera.position).add(new THREE.Vector3(delta.x, 0, 0));
+        if (!collidesWithRoom(camera.position, nextPosition, collisionMeshes)) {
+          resolvedPosition.x = nextPosition.x;
+        }
+
+        nextPosition.copy(resolvedPosition).add(new THREE.Vector3(0, delta.y, 0));
+        if (!collidesWithRoom(resolvedPosition, nextPosition, collisionMeshes)) {
+          resolvedPosition.y = nextPosition.y;
+        }
+
+        nextPosition.copy(resolvedPosition).add(new THREE.Vector3(0, 0, delta.z));
+        if (!collidesWithRoom(resolvedPosition, nextPosition, collisionMeshes)) {
+          resolvedPosition.z = nextPosition.z;
+        }
+
+        const actualDelta = resolvedPosition.sub(camera.position);
+        camera.position.add(actualDelta);
+        lookTarget.add(actualDelta);
         camera.lookAt(lookTarget);
-        moved = true;
+        moved = actualDelta.lengthSq() > 0;
       }
 
       return moved;
@@ -1441,7 +1453,79 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           return;
         }
 
-        setStatus(`Spark: ${splatMesh.packedSplats.numSplats.toLocaleString()} splats`);
+        reportLoadingState({
+          active: true,
+          mode: "busy",
+          progress: 100,
+          stage: "衝突判定を準備中",
+          detail: "部屋メッシュを読み込んでいます",
+        });
+
+        const collisionGltf = await new GLTFLoader().loadAsync(COLLISION_ASSET_URL);
+
+        if (disposed) {
+          disposeObject3D(collisionGltf.scene);
+          return;
+        }
+
+        collisionRoom = collisionGltf.scene;
+        collisionRoom.rotation.copy(COLLISION_MESH_ROTATION);
+        collisionRoom.updateMatrixWorld(true);
+        collisionMeshes = collectCollisionMeshes(collisionRoom);
+        collisionRoom.visible = showCollisionMeshRef.current;
+        collisionRoomRef.current = collisionRoom;
+        scene.add(collisionRoom);
+
+        if (disposed) {
+          return;
+        }
+
+        const audioLoader = new THREE.AudioLoader();
+        const roomCenter = worldBounds.getCenter(new THREE.Vector3());
+        const roomSize = worldBounds.getSize(new THREE.Vector3());
+        const audioEntries = await Promise.all(
+          POSITIONAL_AUDIO_SOURCES.map(async (source) => {
+            const buffer = await audioLoader.loadAsync(source.url);
+            return { buffer, source };
+          }),
+        );
+
+        if (disposed) {
+          return;
+        }
+
+        for (const { buffer, source } of audioEntries) {
+          const holder = new THREE.Object3D();
+          holder.name = `audio-source-${source.name}`;
+          holder.position
+            .copy(roomCenter)
+            .add(
+              new THREE.Vector3(
+                source.worldOffset.x * roomSize.x * 0.32,
+                source.worldOffset.y,
+                source.worldOffset.z * roomSize.z * 0.32,
+              ),
+            );
+
+          const audio = new THREE.PositionalAudio(audioListener);
+          audio.setBuffer(buffer);
+          audio.setLoop(source.loop);
+          audio.setVolume(source.volume);
+          audio.setRefDistance(source.refDistance);
+          audio.setMaxDistance(source.maxDistance);
+          audio.setRolloffFactor(source.rolloffFactor);
+          holder.add(audio);
+          holder.add(createAudioMarker(source.name));
+          scene.add(holder);
+          audioObjects.push(holder);
+          positionalAudioRef.current.push(audio);
+
+          if (soundEnabled && !audio.isPlaying) {
+            audio.play();
+          }
+        }
+
+        setStatus(`Spark: ${splatMesh.context.splats.getNumSplats().toLocaleString()} splats`);
         reportLoadingState({
           active: true,
           mode: "busy",
@@ -1518,13 +1602,28 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           dispose();
         }
       });
+      for (const audio of positionalAudioRef.current) {
+        if (audio.isPlaying) {
+          audio.stop();
+        }
+        audio.disconnect();
+      }
+      positionalAudioRef.current = [];
+      for (const object of audioObjects) {
+        scene.remove(object);
+      }
       splatMesh?.dispose();
+      if (collisionRoom) {
+        disposeObject3D(collisionRoom);
+      }
       renderer.dispose();
       placementLayerRef.current = null;
       worldBoundsRef.current = null;
       cameraRef.current = null;
+      collisionRoomRef.current = null;
       requestRenderRef.current = () => {};
       setDetailPopup(null);
+      resetViewerUi();
       reportLoadingState({
         active: false,
         mode: "busy",
@@ -1542,344 +1641,61 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
   return (
     <div
       ref={containerRef}
-      onDragOver={(event) => {
-        const canDropSample = event.dataTransfer.types.includes(SAMPLE_OBJECT_TRANSFER_TYPE);
-        const canDropAsset = event.dataTransfer.types.includes(ASSET_ITEM_TRANSFER_TYPE);
-        if (!canDropSample && !canDropAsset) {
-          return;
-        }
-
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        if (!isDraggingOver) {
-          setIsDraggingOver(true);
-        }
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setIsDraggingOver(false);
-        }
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const sampleId = event.dataTransfer.getData(SAMPLE_OBJECT_TRANSFER_TYPE);
-        const assetId = event.dataTransfer.getData(ASSET_ITEM_TRANSFER_TYPE);
-        setIsDraggingOver(false);
-        if (assetId) {
-          placeAssetItem(assetId, event.clientX, event.clientY);
-          return;
-        }
-        if (sampleId) {
-          placeSampleObject(sampleId, event.clientX, event.clientY);
-        }
-      }}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        minHeight: 0,
-        overflow: "hidden",
-        background: "#08111e",
-        borderRadius: 24,
-      }}
+      className="relative h-full min-h-0 w-full overflow-hidden rounded-[24px] bg-[#08111e]"
     >
-      <div
-        style={{
-          position: "absolute",
-          inset: 16,
-          zIndex: 1,
-          borderRadius: 24,
-          border: isDraggingOver ? "1px solid rgba(125, 211, 252, 0.7)" : "1px solid transparent",
-          background: isDraggingOver ? "rgba(14, 165, 233, 0.08)" : "transparent",
-          pointerEvents: "none",
-          transition: "border-color 120ms ease, background 120ms ease",
+      <ViewerHud
+        onJoystickPointerDown={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const radius = bounds.width * 0.5;
+          const knobRadius = 26;
+          const centerX = bounds.left + bounds.width * 0.5;
+          const centerY = bounds.top + bounds.height * 0.5;
+          const rawX = event.clientX - centerX;
+          const rawY = event.clientY - centerY;
+          const maxDistance = Math.max(radius - knobRadius, 1);
+          const distance = Math.hypot(rawX, rawY);
+          const scale = distance > maxDistance ? maxDistance / distance : 1;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setMovementJoystick({
+            x: (rawX * scale) / maxDistance,
+            y: (rawY * scale) / maxDistance,
+          });
         }}
+        onJoystickPointerMove={(event) => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+            return;
+          }
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const radius = bounds.width * 0.5;
+          const knobRadius = 26;
+          const centerX = bounds.left + bounds.width * 0.5;
+          const centerY = bounds.top + bounds.height * 0.5;
+          const rawX = event.clientX - centerX;
+          const rawY = event.clientY - centerY;
+          const maxDistance = Math.max(radius - knobRadius, 1);
+          const distance = Math.hypot(rawX, rawY);
+          const scale = distance > maxDistance ? maxDistance / distance : 1;
+          setMovementJoystick({
+            x: (rawX * scale) / maxDistance,
+            y: (rawY * scale) / maxDistance,
+          });
+        }}
+        onJoystickPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          resetMovementJoystick();
+        }}
+        onJoystickPointerLeave={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            return;
+          }
+          resetMovementJoystick();
+        }}
+        setMovementControl={setMovementControl}
+        endMovementControl={endMovementControl}
       />
-      <div
-        style={{
-          position: "absolute",
-          right: 16,
-          bottom: 16,
-          maxWidth: "calc(100vw - 32px)",
-          minHeight: 0,
-          zIndex: 1,
-          width: 120,
-          padding: "12px 14px",
-          borderRadius: 18,
-          background: "rgba(8, 17, 30, 0.7)",
-          color: "rgba(255, 255, 255, 0.92)",
-          pointerEvents: "none",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-        }}
-      >
-        <div
-          aria-label={`現在の向き ${compass.heading}`}
-          style={{
-            position: "relative",
-            width: 92,
-            height: 92,
-            margin: "0 auto",
-            borderRadius: "50%",
-            border: "1px solid rgba(125, 211, 252, 0.28)",
-            background:
-              "radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.14), rgba(15, 23, 42, 0.2) 60%, rgba(15, 23, 42, 0.5) 100%)",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: 12,
-              right: -28,
-              bottom: 12,
-              width: 12,
-              borderRadius: 999,
-              border: "1px solid rgba(125, 211, 252, 0.24)",
-              background: "rgba(15, 23, 42, 0.82)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: 1,
-                right: 1,
-                top: "50%",
-                height: 1,
-                background: "rgba(226, 232, 240, 0.24)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: 1,
-                right: 1,
-                top: `${50 - THREE.MathUtils.clamp(compass.pitchDeg / 90, -1, 1) * 44}%`,
-                height: 10,
-                borderRadius: 999,
-                background: "linear-gradient(180deg, #7dd3fc 0%, #38bdf8 100%)",
-                boxShadow: "0 0 12px rgba(56, 189, 248, 0.45)",
-                transform: "translateY(-50%)",
-              }}
-            />
-          </div>
-          <span
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: 8,
-              transform: "translateX(-50%)",
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#f8fafc",
-            }}
-          >
-            N
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              top: "50%",
-              right: 8,
-              transform: "translateY(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            E
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: 8,
-              transform: "translateX(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            S
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: 8,
-              transform: "translateY(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            W
-          </span>
-          <div
-            style={{
-              position: "absolute",
-              inset: 18,
-              transform: `rotate(${compass.rotationDeg}deg)`,
-              transition: "transform 120ms ease-out",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: 2,
-                width: 2,
-                height: 32,
-                borderRadius: 999,
-                background: "linear-gradient(180deg, #38bdf8 0%, rgba(56, 189, 248, 0.12) 100%)",
-                transform: "translateX(-50%)",
-                transformOrigin: "center bottom",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: -2,
-                width: 0,
-                height: 0,
-                borderLeft: "6px solid transparent",
-                borderRight: "6px solid transparent",
-                borderBottom: "12px solid #38bdf8",
-                transform: "translateX(-50%)",
-              }}
-            />
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: "#e2e8f0",
-              transform: "translate(-50%, -50%)",
-            }}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 4,
-            height: 0,
-          }}
-        />
-      </div>
-      {detailPopup ? (
-        <div
-          style={{
-            position: "absolute",
-            left: detailPopup.screenX,
-            top: detailPopup.screenY,
-            zIndex: 2,
-            width: 240,
-            padding: "12px 14px",
-            borderRadius: 16,
-            border: "1px solid rgba(125, 211, 252, 0.28)",
-            background:
-              "linear-gradient(180deg, rgba(8, 17, 30, 0.94) 0%, rgba(15, 23, 42, 0.9) 100%)",
-            boxShadow: "0 14px 40px rgba(2, 6, 23, 0.35)",
-            color: "#f8fafc",
-            transform: "translate(-50%, calc(-100% - 2px))",
-            pointerEvents: "none",
-            backdropFilter: "blur(10px)",
-            WebkitBackdropFilter: "blur(10px)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "rgba(125, 211, 252, 0.82)",
-            }}
-          >
-            Selected Asset
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 16,
-              fontWeight: 700,
-              lineHeight: 1.25,
-            }}
-          >
-            {detailPopup.detail.productName}
-          </div>
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 12,
-              color: "rgba(226, 232, 240, 0.8)",
-            }}
-          >
-            型番 {detailPopup.detail.modelNumber}
-          </div>
-          <div
-            style={{
-              marginTop: 10,
-              display: "grid",
-              gap: 8,
-              fontSize: 12,
-              lineHeight: 1.45,
-            }}
-          >
-            <div>
-              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>提供会社</div>
-              <div>{detailPopup.detail.companyName}</div>
-            </div>
-            <div>
-              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>レンタル費用</div>
-              <div>{detailPopup.detail.rentalCostLabel}</div>
-            </div>
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: -10,
-              width: 18,
-              height: 18,
-              borderRight: "1px solid rgba(125, 211, 252, 0.28)",
-              borderBottom: "1px solid rgba(125, 211, 252, 0.28)",
-              background: "rgba(15, 23, 42, 0.92)",
-              transform: "translateX(-50%) rotate(45deg)",
-            }}
-          />
-        </div>
-      ) : null}
-      <div
-        style={{
-          position: "absolute",
-          right: 16,
-          left: 16,
-          bottom: 16,
-          zIndex: 1,
-          maxWidth: "min(560px, calc(100vw - 32px))",
-          padding: "10px 12px",
-          borderRadius: 12,
-          background: "rgba(8, 17, 30, 0.65)",
-          color: "rgba(255, 255, 255, 0.9)",
-          fontSize: 12,
-          lineHeight: 1.5,
-          letterSpacing: "0.01em",
-          pointerEvents: "none",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-        }}
-      >
-        <div>{status}</div>
-        <div style={{ opacity: 0.75 }}>
-          W/A/S/D move · drag to look · click object to select · drag to move · Shift+drag or [ ]
-          rotate
-        </div>
-        <div style={{ opacity: 0.75 }}>{dropHint}</div>
-      </div>
     </div>
   );
 }
