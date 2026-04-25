@@ -6,7 +6,7 @@ import {
   ASSET_ITEM_TRANSFER_TYPE,
   SparkScene,
   type ViewerLoadingState,
-} from "@/components/Splat";
+} from "@/features/spark-viewer/components/SparkScene";
 
 export default function SparkDemoPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
