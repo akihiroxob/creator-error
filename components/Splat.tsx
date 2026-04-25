@@ -1,758 +1,54 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-
-type InputState = {
-  forward: boolean;
-  back: boolean;
-  left: boolean;
-  right: boolean;
-  up: boolean;
-  down: boolean;
-  faster: boolean;
-};
-
-type OrientationState = {
-  yaw: number;
-  pitch: number;
-};
-
-type StartingView = {
-  moveSpeed: number;
-  pitch: number;
-  position: THREE.Vector3;
-  radius: number;
-  target: THREE.Vector3;
-  yaw: number;
-};
-
-type SampleObject = {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  shape: "box" | "cylinder";
-  size: [number, number, number];
-};
-
-export type PlacementObjectDetail = {
-  productName: string;
-  modelNumber: string;
-  companyName: string;
-  rentalCostLabel: string;
-};
-
-export type AssetItem = {
-  detail: PlacementObjectDetail;
-  id: string;
-  name: string;
-  previewSrc: string;
-  src: string;
-  targetSize: number;
-  type: "glb";
-};
-
-export type ViewerLoadingState = {
-  active: boolean;
-  mode: "busy" | "progress";
-  progress: number;
-  stage: string;
-  detail: string;
-};
-
-type CompassState = {
-  heading: string;
-  pitchDeg: number;
-  rotationDeg: number;
-};
-
-type ObjectInteractionMode = "idle" | "selected" | "moving" | "rotating";
-type DetailVisibility = "hidden" | "visible";
-
-type PlacementObjectUserData = {
-  detail?: PlacementObjectDetail;
-  detailVisibility?: DetailVisibility;
-  dispose?: () => void;
-  originalMaterial?: THREE.Material | THREE.Material[];
-  interactionMode?: ObjectInteractionMode;
-  selectable?: boolean;
-  selectionIndicator?: THREE.Object3D;
-};
-
-type DetailPopupState = {
-  detail: PlacementObjectDetail;
-  screenX: number;
-  screenY: number;
-};
-
-export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
-export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
-const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
-const COLLISION_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/room_edit.glb";
-// const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
-// `SplatMesh.initialized` completes before SparkRenderer performs the first
-// deferred update and finishes the initial sort pass, so the first visually
-// valid frame can lag behind data initialization.
-const INITIAL_RENDER_WARMUP_PASSES = 6;
-const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
-const CAMERA_COLLISION_RADIUS = 0.22;
-const CAMERA_COLLISION_HEIGHT = 1.45;
-const COLLISION_MESH_ROTATION = new THREE.Euler(-Math.PI / 2, 0, Math.PI, "XYZ");
-const POSITIONAL_AUDIO_SOURCES = [
-  {
-    loop: true,
-    maxDistance: 5.8,
-    name: "stream",
-    refDistance: 0.9,
-    rolloffFactor: 1.7,
-    url: "/asset/stream.wav",
-    volume: 0.85,
-    worldOffset: new THREE.Vector3(-0.95, 0.85, -1.25),
-  },
-  {
-    loop: true,
-    maxDistance: 4.8,
-    name: "chime",
-    refDistance: 0.75,
-    rolloffFactor: 1.9,
-    url: "/asset/chime.wav",
-    volume: 0.58,
-    worldOffset: new THREE.Vector3(0.95, 1.05, 1.15),
-  },
-] as const;
-
-export const SAMPLE_OBJECTS: SampleObject[] = [
-  {
-    id: "storage-box",
-    name: "Storage Box",
-    description: "小型の箱。角の確認用。",
-    color: "#f97316",
-    shape: "box",
-    size: [0.55, 0.55, 0.55],
-  },
-  {
-    id: "display-pillar",
-    name: "Display Pillar",
-    description: "縦長シリンダー。高さの確認用。",
-    color: "#22c55e",
-    shape: "cylinder",
-    size: [0.28, 1.2, 0.28],
-  },
-  {
-    id: "bench-block",
-    name: "Bench Block",
-    description: "横長ブロック。通路の見え方確認用。",
-    color: "#38bdf8",
-    shape: "box",
-    size: [1.2, 0.38, 0.45],
-  },
-];
-
-export const ASSET_ITEMS: AssetItem[] = [
-  {
-    id: "arm-chair",
-    name: "Arm Chair",
-    detail: {
-      productName: "Arm Chair",
-      modelNumber: "AC-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥12,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/arm_chair_2k.glb",
-    previewSrc: "/asset/arm_chair_2k.jpg",
-    targetSize: 0.68,
-    type: "glb",
-  },
-  {
-    id: "chinese-sofa",
-    name: "Chinese Sofa",
-    detail: {
-      productName: "Chinese Sofa",
-      modelNumber: "CS-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥28,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/chinese_sofa_2k.glb",
-    previewSrc: "/asset/chinese_sofa_2k.jpg",
-    targetSize: 1.05,
-    type: "glb",
-  },
-  {
-    id: "clock",
-    name: "Clock",
-    detail: {
-      productName: "Clock",
-      modelNumber: "CLK-2K",
-      companyName: "Junichi Props Rental",
-      rentalCostLabel: "¥4,500 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/cloc_2k.glb",
-    previewSrc: "/asset/cloc_2k.jpg",
-    targetSize: 0.36,
-    type: "glb",
-  },
-  {
-    id: "jug",
-    name: "Jug",
-    detail: {
-      productName: "Jug",
-      modelNumber: "JUG-2K",
-      companyName: "Junichi Props Rental",
-      rentalCostLabel: "¥3,200 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/jug_2k.glb",
-    previewSrc: "/asset/jug_2k.jpg",
-    targetSize: 0.26,
-    type: "glb",
-  },
-  {
-    id: "ottoman",
-    name: "Ottoman",
-    detail: {
-      productName: "Ottoman",
-      modelNumber: "OTM-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥8,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/Ottoman_2k.glb",
-    previewSrc: "/asset/Ottoman_2k.jpg",
-    targetSize: 0.46,
-    type: "glb",
-  },
-  {
-    id: "painted-wooden-stool",
-    name: "Painted Wooden Stool",
-    detail: {
-      productName: "Painted Wooden Stool",
-      modelNumber: "PWS-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥5,400 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/painted_wooden_stool_2k.glb",
-    previewSrc: "/asset/painted_wooden_stool_2k.jpg",
-    targetSize: 0.42,
-    type: "glb",
-  },
-  {
-    id: "sofa",
-    name: "Sofa",
-    detail: {
-      productName: "Sofa",
-      modelNumber: "SF-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥26,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/sofa_2k.glb",
-    previewSrc: "/asset/sofa_2k.jpg",
-    targetSize: 1.13,
-    type: "glb",
-  },
-  {
-    id: "steel-frame",
-    name: "Steel Frame",
-    detail: {
-      productName: "Steel Frame",
-      modelNumber: "STF-2K",
-      companyName: "Junichi Display Systems",
-      rentalCostLabel: "¥15,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/steel_frame_2k.glb",
-    previewSrc: "/asset/steel_frame_2k.jpg",
-    targetSize: 0.9,
-    type: "glb",
-  },
-];
-
-type SparkSceneProps = {
-  onLoadingStateChange?: (state: ViewerLoadingState) => void;
-  soundEnabled?: boolean;
-  showCollisionMesh?: boolean;
-};
-
-function attachSelectionIndicator(group: THREE.Group, radius: number) {
-  const indicator = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 0.72, radius, 48),
-    new THREE.MeshBasicMaterial({
-      color: "#38bdf8",
-      transparent: true,
-      opacity: 0.82,
-      side: THREE.DoubleSide,
-    }),
-  );
-  indicator.rotation.x = -Math.PI / 2;
-  indicator.position.y = 0.02;
-  indicator.visible = false;
-  group.add(indicator);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.selectionIndicator = indicator;
-}
-
-function setObjectSelected(object: THREE.Object3D | null, selected: boolean) {
-  if (!object) {
-    return;
-  }
-
-  const indicator = (object.userData as PlacementObjectUserData).selectionIndicator;
-  if (indicator instanceof THREE.Object3D) {
-    indicator.visible = selected;
-  }
-}
-
-function resolveDetailVisibility(interactionMode: ObjectInteractionMode): DetailVisibility {
-  return interactionMode === "selected" ? "visible" : "hidden";
-}
-
-function setObjectInteractionMode(
-  object: THREE.Object3D | null,
-  interactionMode: ObjectInteractionMode,
-) {
-  if (!object) {
-    return;
-  }
-
-  const userData = object.userData as PlacementObjectUserData;
-  userData.interactionMode = interactionMode;
-  userData.detailVisibility = resolveDetailVisibility(interactionMode);
-}
-
-function getObjectDetail(object: THREE.Object3D | null) {
-  if (!object) {
-    return null;
-  }
-
-  return ((object.userData as PlacementObjectUserData).detail ??
-    null) as PlacementObjectDetail | null;
-}
-
-function shouldShowObjectDetail(object: THREE.Object3D | null) {
-  if (!object) {
-    return false;
-  }
-
-  const userData = object.userData as PlacementObjectUserData;
-  return userData.detailVisibility === "visible" && !!userData.detail;
-}
-
-function getObjectPopupAnchor(object: THREE.Object3D) {
-  const box = new THREE.Box3().setFromObject(object);
-  if (box.isEmpty()) {
-    return object.getWorldPosition(new THREE.Vector3());
-  }
-
-  const anchor = box.getCenter(new THREE.Vector3());
-  anchor.y = box.max.y + Math.max(box.getSize(new THREE.Vector3()).y * 0.04, 0.04);
-  return anchor;
-}
-
-function projectWorldPointToScreen(
-  point: THREE.Vector3,
-  camera: THREE.PerspectiveCamera,
-  container: HTMLElement,
-) {
-  const projected = point.clone().project(camera);
-  if (projected.z < -1 || projected.z > 1) {
-    return null;
-  }
-
-  const bounds = container.getBoundingClientRect();
-  return {
-    screenX: ((projected.x + 1) / 2) * bounds.width,
-    screenY: ((1 - projected.y) / 2) * bounds.height,
-  };
-}
-
-function createPlacedObject(sample: SampleObject) {
-  const [width, height, depth] = sample.size;
-  const group = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({
-    color: sample.color,
-    roughness: 0.45,
-    metalness: 0.08,
-  });
-  const accentMaterial = new THREE.MeshBasicMaterial({
-    color: sample.color,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.18,
-  });
-
-  const geometry =
-    sample.shape === "cylinder"
-      ? new THREE.CylinderGeometry(width, depth, height, 24)
-      : new THREE.BoxGeometry(width, height, depth);
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = height / 2;
-  group.add(mesh);
-
-  const silhouette = new THREE.Mesh(geometry.clone(), accentMaterial);
-  silhouette.position.copy(mesh.position);
-  silhouette.scale.setScalar(1.03);
-  group.add(silhouette);
-
-  const marker = new THREE.Mesh(
-    new THREE.RingGeometry(Math.max(width, depth) * 0.45, Math.max(width, depth) * 0.66, 40),
-    new THREE.MeshBasicMaterial({
-      color: sample.color,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide,
-    }),
-  );
-  marker.rotation.x = -Math.PI / 2;
-  marker.position.y = 0.015;
-  group.add(marker);
-  attachSelectionIndicator(group, Math.max(width, depth) * 0.92);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.selectable = true;
-  userData.interactionMode = "idle";
-  userData.detailVisibility = "hidden";
-
-  userData.dispose = () => {
-    const selectionIndicator = userData.selectionIndicator as THREE.Mesh | undefined;
-    geometry.dispose();
-    silhouette.geometry.dispose();
-    marker.geometry.dispose();
-    material.dispose();
-    accentMaterial.dispose();
-    const markerMaterial = marker.material;
-    if (markerMaterial instanceof THREE.Material) {
-      markerMaterial.dispose();
-    }
-    if (selectionIndicator) {
-      selectionIndicator.geometry.dispose();
-      const selectionMaterial = selectionIndicator.material;
-      if (selectionMaterial instanceof THREE.Material) {
-        selectionMaterial.dispose();
-      }
-    }
-  };
-
-  return group;
-}
-
-function orientPlacedObject(group: THREE.Object3D, camera: THREE.PerspectiveCamera) {
-  const facing = new THREE.Vector3();
-  camera.getWorldDirection(facing);
-  facing.y = 0;
-  if (facing.lengthSq() === 0) {
-    facing.set(0, 0, -1);
-  }
-  group.rotation.y = Math.atan2(facing.x, facing.z) + Math.PI;
-}
-
-function disposeObject3D(root: THREE.Object3D) {
-  root.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (mesh.geometry) {
-      mesh.geometry.dispose();
-    }
-    const material = mesh.material;
-    if (Array.isArray(material)) {
-      material.forEach((entry) => entry.dispose());
-    } else if (material instanceof THREE.Material) {
-      material.dispose();
-    }
-  });
-}
-
-function createPlacedAssetPlaceholder(asset: AssetItem, camera: THREE.PerspectiveCamera) {
-  const group = new THREE.Group();
-  const width = 1.4;
-  const height = 1;
-  const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({
-    color: "#dbeafe",
-    side: THREE.DoubleSide,
-  });
-  const panel = new THREE.Mesh(geometry, material);
-  panel.position.y = height / 2;
-  group.add(panel);
-
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.08, height + 0.08, 0.05),
-    new THREE.MeshStandardMaterial({
-      color: "#0f172a",
-      roughness: 0.6,
-      metalness: 0.15,
-    }),
-  );
-  frame.position.set(0, height / 2, -0.03);
-  group.add(frame);
-
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.16, 0.08, 24),
-    new THREE.MeshStandardMaterial({
-      color: "#334155",
-      roughness: 0.75,
-      metalness: 0.1,
-    }),
-  );
-  base.position.y = 0.04;
-  group.add(base);
-
-  orientPlacedObject(group, camera);
-
-  const loader = new THREE.TextureLoader();
-  let texture: THREE.Texture | null = null;
-  void loader.load(
-    asset.previewSrc,
-    (loaded) => {
-      texture = loaded;
-      texture.colorSpace = THREE.SRGBColorSpace;
-      material.map = texture;
-      material.needsUpdate = true;
-    },
-    undefined,
-    () => {
-      material.color.set("#fca5a5");
-    },
-  );
-
-  group.userData.dispose = () => {
-    const userData = group.userData as PlacementObjectUserData;
-    geometry.dispose();
-    panel.material.dispose();
-    frame.geometry.dispose();
-    frame.material.dispose();
-    base.geometry.dispose();
-    base.material.dispose();
-    texture?.dispose();
-    userData.detailVisibility = "hidden";
-  };
-
-  return group;
-}
-
-async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveCamera) {
-  const group = new THREE.Group();
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(asset.src);
-  const model = gltf.scene;
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const largestSide = Math.max(size.x, size.y, size.z, 0.001);
-  const scale = asset.targetSize / largestSide;
-
-  model.position.sub(center);
-  model.scale.setScalar(scale);
-  const scaledBox = new THREE.Box3().setFromObject(model);
-  model.position.y -= scaledBox.min.y;
-
-  group.add(model);
-  const scaledSize = scaledBox.getSize(new THREE.Vector3());
-  attachSelectionIndicator(group, Math.max(scaledSize.x, scaledSize.z, 0.45) * 0.58);
-  orientPlacedObject(group, camera);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.detail = asset.detail;
-  userData.detailVisibility = "hidden";
-  userData.interactionMode = "idle";
-  userData.selectable = true;
-  userData.dispose = () => {
-    disposeObject3D(group);
-  };
-  return group;
-}
-
-function getWorldBoundingBox(object: SplatMesh) {
-  object.updateMatrixWorld(true);
-  return object.getBoundingBox().clone().applyMatrix4(object.matrixWorld);
-}
-
-function collectCollisionMeshes(object: THREE.Object3D) {
-  const meshes: THREE.Mesh[] = [];
-  const debugMaterial = new THREE.MeshBasicMaterial({
-    color: "#38bdf8",
-    transparent: true,
-    opacity: 0.24,
-    wireframe: true,
-    depthWrite: false,
-  });
-
-  object.updateMatrixWorld(true);
-  object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) {
-      return;
-    }
-
-    const userData = child.userData as PlacementObjectUserData;
-    userData.originalMaterial = child.material;
-    child.material = debugMaterial;
-    meshes.push(child);
-  });
-
-  return meshes;
-}
-
-function collidesWithRoom(
-  currentPosition: THREE.Vector3,
-  nextPosition: THREE.Vector3,
-  collisionMeshes: THREE.Mesh[],
-) {
-  if (collisionMeshes.length === 0) {
-    return false;
-  }
-
-  const delta = nextPosition.clone().sub(currentPosition);
-  const distance = delta.length();
-  if (distance <= 0) {
-    return false;
-  }
-
-  const direction = delta.divideScalar(distance);
-  const side = new THREE.Vector3(-direction.z, 0, direction.x);
-  if (side.lengthSq() > 0) {
-    side.normalize();
-  }
-
-  const up = new THREE.Vector3(0, 1, 0);
-  const raycaster = new THREE.Raycaster();
-  raycaster.near = 0;
-  raycaster.far = distance + CAMERA_COLLISION_RADIUS;
-
-  const origins = [
-    currentPosition,
-    currentPosition.clone().addScaledVector(side, CAMERA_COLLISION_RADIUS),
-    currentPosition.clone().addScaledVector(side, -CAMERA_COLLISION_RADIUS),
-    currentPosition.clone().addScaledVector(up, CAMERA_COLLISION_HEIGHT * 0.35),
-    currentPosition.clone().addScaledVector(up, -CAMERA_COLLISION_HEIGHT * 0.35),
-  ];
-
-  return origins.some((origin) => {
-    raycaster.set(origin, direction);
-    return raycaster.intersectObjects(collisionMeshes, false).length > 0;
-  });
-}
-
-function createAudioMarker(name: string) {
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 16, 12),
-    new THREE.MeshBasicMaterial({
-      color: name === "stream" ? "#38bdf8" : "#facc15",
-      transparent: true,
-      opacity: 0.82,
-    }),
-  );
-  marker.name = `audio-marker-${name}`;
-  return marker;
-}
-
-function toCompassState(direction: THREE.Vector3): CompassState {
-  const normalizedHeading = THREE.MathUtils.euclideanModulo(
-    THREE.MathUtils.radToDeg(Math.atan2(direction.x, -direction.z)),
-    360,
-  );
-  const headings = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  const index = Math.round(normalizedHeading / 45) % headings.length;
-
-  return {
-    heading: headings[index],
-    pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1))),
-    rotationDeg: normalizedHeading,
-  };
-}
-
-function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh) {
-  const box = getWorldBoundingBox(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxSize = Math.max(size.x, size.y, size.z, 0);
-  const orientation = new THREE.Euler(0, 0, 0, "YXZ");
-
-  if (!Number.isFinite(maxSize) || maxSize <= 0) {
-    camera.near = 0.01;
-    camera.far = Math.max(size.length() * 3, 50);
-    camera.position.copy(center);
-    camera.up.set(0, 1, 0);
-    const target = center.clone().add(new THREE.Vector3(0, 0, -1));
-    camera.lookAt(target);
-    orientation.setFromQuaternion(camera.quaternion, "YXZ");
-    camera.updateProjectionMatrix();
-    return {
-      moveSpeed: 1,
-      pitch: orientation.x,
-      position: camera.position.clone(),
-      radius: 1,
-      target,
-      yaw: orientation.y,
-    };
-  }
-
-  const start = center.clone();
-  const target = center.clone();
-  const farPlane = Math.max(maxSize * 20, 100);
-  const dominantHorizontalAxis = size.x >= size.z ? "x" : "z";
-  const horizontalInsetX = Math.max(size.x * 0.18, 0.4);
-  const horizontalInsetZ = Math.max(size.z * 0.18, 0.4);
-  const eyeHeight = THREE.MathUtils.clamp(size.y * 0.07, 0.22, 0.95);
-  const headroom = Math.max(size.y * 0.12, 0.35);
-  const minimumInteriorY = box.min.y + Math.max(size.y * 0.04, 0.16);
-  const lookDownOffset = Math.max(size.y * 0.03, 0.05);
-  const initialRaise = THREE.MathUtils.clamp(Math.max(maxSize * 0.025, 0.14), 0.14, 0.32);
-  const startOffset =
-    dominantHorizontalAxis === "x" ? Math.max(size.x * 0.16, 0.8) : Math.max(size.z * 0.16, 0.8);
-  const northLookOffset = Math.max(size.z * 0.08, 0.45);
-
-  camera.near = 0.01;
-  camera.far = farPlane;
-  camera.up.set(0, 1, 0);
-
-  start.y = THREE.MathUtils.clamp(
-    Math.max(box.min.y + eyeHeight + initialRaise, minimumInteriorY),
-    box.min.y + 0.35,
-    box.max.y - headroom,
-  );
-  target.y = start.y - lookDownOffset;
-
-  if (dominantHorizontalAxis === "x") {
-    start.x = THREE.MathUtils.clamp(
-      center.x - startOffset,
-      box.min.x + horizontalInsetX,
-      box.max.x - horizontalInsetX,
-    );
-    target.x = start.x;
-    start.z = THREE.MathUtils.clamp(
-      start.z,
-      box.min.z + horizontalInsetZ,
-      box.max.z - horizontalInsetZ,
-    );
-  } else {
-    start.z = THREE.MathUtils.clamp(
-      center.z - startOffset,
-      box.min.z + horizontalInsetZ,
-      box.max.z - horizontalInsetZ,
-    );
-    start.x = THREE.MathUtils.clamp(
-      start.x,
-      box.min.x + horizontalInsetX,
-      box.max.x - horizontalInsetX,
-    );
-  }
-
-  target.z = THREE.MathUtils.clamp(
-    start.z - northLookOffset,
-    box.min.z + horizontalInsetZ,
-    box.max.z - horizontalInsetZ,
-  );
-
-  camera.position.copy(start);
-  camera.lookAt(target);
-  orientation.setFromQuaternion(camera.quaternion, "YXZ");
-  camera.updateProjectionMatrix();
-
-  return {
-    moveSpeed: Math.max(maxSize * 0.2, 0.35),
-    pitch: orientation.x,
-    position: start.clone(),
-    radius: camera.position.distanceTo(target),
-    target,
-    yaw: orientation.y,
-  };
-}
+import { ViewerHud } from "@/components/viewer/ViewerHud";
+import type {
+  CompassState,
+  JoystickVector,
+  PlacementObjectDetail,
+} from "@/components/viewer/types";
+import {
+  ASSET_ITEM_TRANSFER_TYPE,
+  COLLISION_ASSET_URL,
+  COLLISION_MESH_ROTATION,
+  INITIAL_RENDER_WARMUP_DELAY_MS,
+  INITIAL_RENDER_WARMUP_PASSES,
+  POSITIONAL_AUDIO_SOURCES,
+  SAMPLE_OBJECT_TRANSFER_TYPE,
+  SPARK_ASSET_URL,
+} from "@/components/viewer/sceneConstants";
+import {
+  collectCollisionMeshes,
+  collidesWithRoom,
+  createAudioMarker,
+  createPlacedAssetPlaceholder,
+  createPlacedGlbAsset,
+  createPlacedObject,
+  disposeObject3D,
+  getObjectDetail,
+  getObjectPopupAnchor,
+  getWorldBoundingBox,
+  prepareStartingView,
+  projectWorldPointToScreen,
+  setObjectInteractionMode,
+  setObjectSelected,
+  shouldShowObjectDetail,
+  toCompassState,
+} from "@/components/viewer/sceneHelpers";
+import { useViewerUiStore } from "@/stores/viewerUiStore";
+import type {
+  AssetItem,
+  InputState,
+  MovementControlKey,
+  OrientationState,
+  SparkSceneProps,
+  ViewerLoadingState,
+} from "@/components/viewer/sceneTypes";
+
+export type { ViewerLoadingState } from "@/components/viewer/sceneTypes";
 
 export function SparkScene({
   onLoadingStateChange,
@@ -767,19 +63,27 @@ export function SparkScene({
   const placementLayerRef = useRef<THREE.Group | null>(null);
   const placementPlaneYRef = useRef(0);
   const requestRenderRef = useRef<() => void>(() => {});
+  const inputStateRef = useRef<InputState>({
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    faster: false,
+  });
+  const movementJoystickRef = useRef<JoystickVector>({ x: 0, y: 0 });
   const raycasterRef = useRef(new THREE.Raycaster());
   const showCollisionMeshRef = useRef(false);
   const loadingPhaseRankRef = useRef(0);
   const selectedObjectRef = useRef<THREE.Object3D | null>(null);
-  const [status, setStatus] = useState("Spark を読み込み中...");
-  const [dropHint, setDropHint] = useState("");
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [detailPopup, setDetailPopup] = useState<DetailPopupState | null>(null);
-  const [compass, setCompass] = useState<CompassState>({
-    heading: "N",
-    pitchDeg: 0,
-    rotationDeg: 0,
-  });
+  const setCompass = useViewerUiStore((state) => state.setCompass);
+  const setDetailPopup = useViewerUiStore((state) => state.setDetailPopup);
+  const setDropHint = useViewerUiStore((state) => state.setDropHint);
+  const setIsDraggingOver = useViewerUiStore((state) => state.setIsDraggingOver);
+  const setJoystickOffset = useViewerUiStore((state) => state.setJoystickOffset);
+  const setStatus = useViewerUiStore((state) => state.setStatus);
+  const resetViewerUi = useViewerUiStore((state) => state.reset);
 
   useEffect(() => {
     showCollisionMeshRef.current = showCollisionMesh;
@@ -819,138 +123,23 @@ export function SparkScene({
     });
   };
 
-  const placeSampleObject = (sampleId: string, clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    const camera = cameraRef.current;
-    const placementLayer = placementLayerRef.current;
-    const worldBounds = worldBoundsRef.current;
-
-    if (!container || !camera || !placementLayer || !worldBounds) {
-      return;
-    }
-
-    const sample = SAMPLE_OBJECTS.find((item) => item.id === sampleId);
-    if (!sample) {
-      return;
-    }
-
-    const bounds = container.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      return;
-    }
-
-    const pointer = new THREE.Vector2(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((clientY - bounds.top) / bounds.height) * 2 + 1,
-    );
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
-    const hitPoint = new THREE.Vector3();
-    raycasterRef.current.setFromCamera(pointer, camera);
-
-    if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
-      return;
-    }
-
-    const [width, , depth] = sample.size;
-    const marginX = width * 0.55;
-    const marginZ = depth * 0.55;
-    hitPoint.x = THREE.MathUtils.clamp(
-      hitPoint.x,
-      worldBounds.min.x + marginX,
-      worldBounds.max.x - marginX,
-    );
-    hitPoint.z = THREE.MathUtils.clamp(
-      hitPoint.z,
-      worldBounds.min.z + marginZ,
-      worldBounds.max.z - marginZ,
-    );
-    hitPoint.y = placementPlaneYRef.current;
-
-    const placedObject = createPlacedObject(sample);
-    placedObject.position.copy(hitPoint);
-    placementLayer.add(placedObject);
-    setObjectSelected(selectedObjectRef.current, false);
-    selectedObjectRef.current = placedObject;
-    setObjectSelected(placedObject, true);
+  const setMovementControl = (key: MovementControlKey, active: boolean) => {
+    inputStateRef.current[key] = active;
     requestRenderRef.current();
-
-    setStatus(`${sample.name} を配置しました`);
-    setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
   };
 
-  const placeAssetItem = async (assetId: string, clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    const camera = cameraRef.current;
-    const placementLayer = placementLayerRef.current;
-    const worldBounds = worldBoundsRef.current;
+  const endMovementControl = (key: MovementControlKey) => {
+    setMovementControl(key, false);
+  };
 
-    if (!container || !camera || !placementLayer || !worldBounds) {
-      return;
-    }
-
-    const asset = ASSET_ITEMS.find((item) => item.id === assetId);
-    if (!asset) {
-      return;
-    }
-
-    const bounds = container.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      return;
-    }
-
-    const pointer = new THREE.Vector2(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((clientY - bounds.top) / bounds.height) * 2 + 1,
-    );
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
-    const hitPoint = new THREE.Vector3();
-    raycasterRef.current.setFromCamera(pointer, camera);
-
-    if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
-      return;
-    }
-
-    hitPoint.x = THREE.MathUtils.clamp(
-      hitPoint.x,
-      worldBounds.min.x + 0.8,
-      worldBounds.max.x - 0.8,
-    );
-    hitPoint.z = THREE.MathUtils.clamp(
-      hitPoint.z,
-      worldBounds.min.z + 0.8,
-      worldBounds.max.z - 0.8,
-    );
-    hitPoint.y = placementPlaneYRef.current;
-
-    const placeholder = createPlacedAssetPlaceholder(asset, camera);
-    placeholder.position.copy(hitPoint);
-    placementLayer.add(placeholder);
+  const setMovementJoystick = (next: JoystickVector) => {
+    movementJoystickRef.current = next;
+    setJoystickOffset(next);
     requestRenderRef.current();
-    setStatus(`${asset.name} を読み込み中...`);
+  };
 
-    try {
-      const placedAsset = await createPlacedGlbAsset(asset, camera);
-      if (!placementLayer.children.includes(placeholder)) {
-        placedAsset.userData.dispose?.();
-        return;
-      }
-      const disposePlaceholder = placeholder.userData.dispose;
-      if (typeof disposePlaceholder === "function") {
-        disposePlaceholder();
-      }
-      placementLayer.remove(placeholder);
-      placedAsset.position.copy(hitPoint);
-      placementLayer.add(placedAsset);
-      setObjectSelected(selectedObjectRef.current, false);
-      selectedObjectRef.current = placedAsset;
-      setObjectSelected(placedAsset, true);
-      requestRenderRef.current();
-      setStatus(`${asset.name} を配置しました`);
-      setDropHint("配置済みオブジェクトはクリックで選択し、ドラッグで移動 / [ と ] で回転できます");
-    } catch {
-      setStatus(`${asset.name} の読み込みに失敗しました`);
-      setDropHint("アセット形式を確認してください");
-    }
+  const resetMovementJoystick = () => {
+    setMovementJoystick({ x: 0, y: 0 });
   };
 
   useEffect(() => {
@@ -992,15 +181,14 @@ export function SparkScene({
     placementLayerRef.current = placementLayer;
     scene.add(placementLayer);
 
-    const input: InputState = {
-      forward: false,
-      back: false,
-      left: false,
-      right: false,
-      up: false,
-      down: false,
-      faster: false,
-    };
+    const input = inputStateRef.current;
+    input.forward = false;
+    input.back = false;
+    input.left = false;
+    input.right = false;
+    input.up = false;
+    input.down = false;
+    input.faster = false;
 
     const orientation: OrientationState = {
       yaw: 0,
@@ -1437,6 +625,7 @@ export function SparkScene({
       input.up = false;
       input.down = false;
       input.faster = false;
+      resetMovementJoystick();
     };
 
     const updateMovement = (deltaSeconds: number) => {
@@ -1465,6 +654,12 @@ export function SparkScene({
       if (input.left) movement.addScaledVector(rightVector, -1);
       if (input.up) movement.y += 1;
       if (input.down) movement.y -= 1;
+      if (movementJoystickRef.current.y !== 0) {
+        movement.addScaledVector(forwardVector, -movementJoystickRef.current.y);
+      }
+      if (movementJoystickRef.current.x !== 0) {
+        movement.addScaledVector(rightVector, movementJoystickRef.current.x);
+      }
 
       if (movement.lengthSq() > 0) {
         movement.normalize();
@@ -1648,13 +843,15 @@ export function SparkScene({
         for (const { buffer, source } of audioEntries) {
           const holder = new THREE.Object3D();
           holder.name = `audio-source-${source.name}`;
-          holder.position.copy(roomCenter).add(
-            new THREE.Vector3(
-              source.worldOffset.x * roomSize.x * 0.32,
-              source.worldOffset.y,
-              source.worldOffset.z * roomSize.z * 0.32,
-            ),
-          );
+          holder.position
+            .copy(roomCenter)
+            .add(
+              new THREE.Vector3(
+                source.worldOffset.x * roomSize.x * 0.32,
+                source.worldOffset.y,
+                source.worldOffset.z * roomSize.z * 0.32,
+              ),
+            );
 
           const audio = new THREE.PositionalAudio(audioListener);
           audio.setBuffer(buffer);
@@ -1772,6 +969,7 @@ export function SparkScene({
       collisionRoomRef.current = null;
       requestRenderRef.current = () => {};
       setDetailPopup(null);
+      resetViewerUi();
       reportLoadingState({
         active: false,
         mode: "busy",
@@ -1789,344 +987,61 @@ export function SparkScene({
   return (
     <div
       ref={containerRef}
-      onDragOver={(event) => {
-        const canDropSample = event.dataTransfer.types.includes(SAMPLE_OBJECT_TRANSFER_TYPE);
-        const canDropAsset = event.dataTransfer.types.includes(ASSET_ITEM_TRANSFER_TYPE);
-        if (!canDropSample && !canDropAsset) {
-          return;
-        }
-
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        if (!isDraggingOver) {
-          setIsDraggingOver(true);
-        }
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setIsDraggingOver(false);
-        }
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const sampleId = event.dataTransfer.getData(SAMPLE_OBJECT_TRANSFER_TYPE);
-        const assetId = event.dataTransfer.getData(ASSET_ITEM_TRANSFER_TYPE);
-        setIsDraggingOver(false);
-        if (assetId) {
-          placeAssetItem(assetId, event.clientX, event.clientY);
-          return;
-        }
-        if (sampleId) {
-          placeSampleObject(sampleId, event.clientX, event.clientY);
-        }
-      }}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        minHeight: 0,
-        overflow: "hidden",
-        background: "#08111e",
-        borderRadius: 24,
-      }}
+      className="relative h-full min-h-0 w-full overflow-hidden rounded-[24px] bg-[#08111e]"
     >
-      <div
-        style={{
-          position: "absolute",
-          inset: 16,
-          zIndex: 1,
-          borderRadius: 24,
-          border: isDraggingOver ? "1px solid rgba(125, 211, 252, 0.7)" : "1px solid transparent",
-          background: isDraggingOver ? "rgba(14, 165, 233, 0.08)" : "transparent",
-          pointerEvents: "none",
-          transition: "border-color 120ms ease, background 120ms ease",
+      <ViewerHud
+        onJoystickPointerDown={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const radius = bounds.width * 0.5;
+          const knobRadius = 26;
+          const centerX = bounds.left + bounds.width * 0.5;
+          const centerY = bounds.top + bounds.height * 0.5;
+          const rawX = event.clientX - centerX;
+          const rawY = event.clientY - centerY;
+          const maxDistance = Math.max(radius - knobRadius, 1);
+          const distance = Math.hypot(rawX, rawY);
+          const scale = distance > maxDistance ? maxDistance / distance : 1;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setMovementJoystick({
+            x: (rawX * scale) / maxDistance,
+            y: (rawY * scale) / maxDistance,
+          });
         }}
+        onJoystickPointerMove={(event) => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+            return;
+          }
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const radius = bounds.width * 0.5;
+          const knobRadius = 26;
+          const centerX = bounds.left + bounds.width * 0.5;
+          const centerY = bounds.top + bounds.height * 0.5;
+          const rawX = event.clientX - centerX;
+          const rawY = event.clientY - centerY;
+          const maxDistance = Math.max(radius - knobRadius, 1);
+          const distance = Math.hypot(rawX, rawY);
+          const scale = distance > maxDistance ? maxDistance / distance : 1;
+          setMovementJoystick({
+            x: (rawX * scale) / maxDistance,
+            y: (rawY * scale) / maxDistance,
+          });
+        }}
+        onJoystickPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          resetMovementJoystick();
+        }}
+        onJoystickPointerLeave={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            return;
+          }
+          resetMovementJoystick();
+        }}
+        setMovementControl={setMovementControl}
+        endMovementControl={endMovementControl}
       />
-      <div
-        style={{
-          position: "absolute",
-          right: 16,
-          bottom: 16,
-          maxWidth: "calc(100vw - 32px)",
-          minHeight: 0,
-          zIndex: 1,
-          width: 120,
-          padding: "12px 14px",
-          borderRadius: 18,
-          background: "rgba(8, 17, 30, 0.7)",
-          color: "rgba(255, 255, 255, 0.92)",
-          pointerEvents: "none",
-          backdropFilter: "blur(10px)",
-          WebkitBackdropFilter: "blur(10px)",
-        }}
-      >
-        <div
-          aria-label={`現在の向き ${compass.heading}`}
-          style={{
-            position: "relative",
-            width: 92,
-            height: 92,
-            margin: "0 auto",
-            borderRadius: "50%",
-            border: "1px solid rgba(125, 211, 252, 0.28)",
-            background:
-              "radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.14), rgba(15, 23, 42, 0.2) 60%, rgba(15, 23, 42, 0.5) 100%)",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: 12,
-              right: -28,
-              bottom: 12,
-              width: 12,
-              borderRadius: 999,
-              border: "1px solid rgba(125, 211, 252, 0.24)",
-              background: "rgba(15, 23, 42, 0.82)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: 1,
-                right: 1,
-                top: "50%",
-                height: 1,
-                background: "rgba(226, 232, 240, 0.24)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: 1,
-                right: 1,
-                top: `${50 - THREE.MathUtils.clamp(compass.pitchDeg / 90, -1, 1) * 44}%`,
-                height: 10,
-                borderRadius: 999,
-                background: "linear-gradient(180deg, #7dd3fc 0%, #38bdf8 100%)",
-                boxShadow: "0 0 12px rgba(56, 189, 248, 0.45)",
-                transform: "translateY(-50%)",
-              }}
-            />
-          </div>
-          <span
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: 8,
-              transform: "translateX(-50%)",
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#f8fafc",
-            }}
-          >
-            N
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              top: "50%",
-              right: 8,
-              transform: "translateY(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            E
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: 8,
-              transform: "translateX(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            S
-          </span>
-          <span
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: 8,
-              transform: "translateY(-50%)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "rgba(226, 232, 240, 0.68)",
-            }}
-          >
-            W
-          </span>
-          <div
-            style={{
-              position: "absolute",
-              inset: 18,
-              transform: `rotate(${compass.rotationDeg}deg)`,
-              transition: "transform 120ms ease-out",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: 2,
-                width: 2,
-                height: 32,
-                borderRadius: 999,
-                background: "linear-gradient(180deg, #38bdf8 0%, rgba(56, 189, 248, 0.12) 100%)",
-                transform: "translateX(-50%)",
-                transformOrigin: "center bottom",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: -2,
-                width: 0,
-                height: 0,
-                borderLeft: "6px solid transparent",
-                borderRight: "6px solid transparent",
-                borderBottom: "12px solid #38bdf8",
-                transform: "translateX(-50%)",
-              }}
-            />
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: "#e2e8f0",
-              transform: "translate(-50%, -50%)",
-            }}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 4,
-            height: 0,
-          }}
-        />
-      </div>
-      {detailPopup ? (
-        <div
-          style={{
-            position: "absolute",
-            left: detailPopup.screenX,
-            top: detailPopup.screenY,
-            zIndex: 2,
-            width: 240,
-            padding: "12px 14px",
-            borderRadius: 16,
-            border: "1px solid rgba(125, 211, 252, 0.28)",
-            background:
-              "linear-gradient(180deg, rgba(8, 17, 30, 0.94) 0%, rgba(15, 23, 42, 0.9) 100%)",
-            boxShadow: "0 14px 40px rgba(2, 6, 23, 0.35)",
-            color: "#f8fafc",
-            transform: "translate(-50%, calc(-100% - 2px))",
-            pointerEvents: "none",
-            backdropFilter: "blur(10px)",
-            WebkitBackdropFilter: "blur(10px)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "rgba(125, 211, 252, 0.82)",
-            }}
-          >
-            Selected Asset
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 16,
-              fontWeight: 700,
-              lineHeight: 1.25,
-            }}
-          >
-            {detailPopup.detail.productName}
-          </div>
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 12,
-              color: "rgba(226, 232, 240, 0.8)",
-            }}
-          >
-            型番 {detailPopup.detail.modelNumber}
-          </div>
-          <div
-            style={{
-              marginTop: 10,
-              display: "grid",
-              gap: 8,
-              fontSize: 12,
-              lineHeight: 1.45,
-            }}
-          >
-            <div>
-              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>提供会社</div>
-              <div>{detailPopup.detail.companyName}</div>
-            </div>
-            <div>
-              <div style={{ color: "rgba(148, 163, 184, 0.9)" }}>レンタル費用</div>
-              <div>{detailPopup.detail.rentalCostLabel}</div>
-            </div>
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: -10,
-              width: 18,
-              height: 18,
-              borderRight: "1px solid rgba(125, 211, 252, 0.28)",
-              borderBottom: "1px solid rgba(125, 211, 252, 0.28)",
-              background: "rgba(15, 23, 42, 0.92)",
-              transform: "translateX(-50%) rotate(45deg)",
-            }}
-          />
-        </div>
-      ) : null}
-      <div
-        style={{
-          position: "absolute",
-          right: 16,
-          left: 16,
-          bottom: 16,
-          zIndex: 1,
-          maxWidth: "min(560px, calc(100vw - 32px))",
-          padding: "10px 12px",
-          borderRadius: 12,
-          background: "rgba(8, 17, 30, 0.65)",
-          color: "rgba(255, 255, 255, 0.9)",
-          fontSize: 12,
-          lineHeight: 1.5,
-          letterSpacing: "0.01em",
-          pointerEvents: "none",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-        }}
-      >
-        <div>{status}</div>
-        <div style={{ opacity: 0.75 }}>
-          W/A/S/D move · drag to look · click object to select · drag to move · Shift+drag or [ ]
-          rotate
-        </div>
-        <div style={{ opacity: 0.75 }}>{dropHint}</div>
-      </div>
     </div>
   );
 }
