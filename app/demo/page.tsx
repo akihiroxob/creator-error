@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SparkScene, type ViewerLoadingState } from "@/components/Splat";
+import { SparkScene, type ViewerLoadingState } from "@/features/spark-viewer/components/SparkScene";
 
 export default function SparkDemoPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
