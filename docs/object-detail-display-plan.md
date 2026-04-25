@@ -16,9 +16,9 @@ Placed GLB assets now carry a normalized detail payload:
 
 Code references:
 
-- `components/Splat.tsx` `PlacementObjectDetail`
-- `components/Splat.tsx` `AssetItem.detail`
-- `components/Splat.tsx` `PlacementObjectUserData.detail`
+- `features/spark-viewer/components/SparkScene.tsx` `PlacementObjectDetail`
+- `features/spark-viewer/components/SparkScene.tsx` `AssetItem.detail`
+- `features/spark-viewer/components/SparkScene.tsx` `PlacementObjectUserData.detail`
 
 The detail payload lives on `object.userData.detail`, so the later popup task can read it
 directly from the selected object rather than re-looking up the source asset list.

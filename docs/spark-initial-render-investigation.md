@@ -4,7 +4,7 @@
 
 This note documents why `/demo` can remain visually blank after `SplatMesh.initialized`
 has resolved, and which completion signals are realistic candidates for replacing the
-current fixed warmup loop in `components/Splat.tsx`.
+current fixed warmup loop in `features/spark-viewer/components/SparkScene.tsx`.
 
 ## Current `/demo` loading flow
 
@@ -16,9 +16,9 @@ current fixed warmup loop in `components/Splat.tsx`.
 
 Relevant app code:
 
-- `components/Splat.tsx:1136` downloads and decodes packed splats.
-- `components/Splat.tsx:1165` awaits `SplatMesh.initialized`.
-- `components/Splat.tsx:1215` starts the current time-based warmup.
+- `features/spark-viewer/components/SparkScene.tsx:1136` downloads and decodes packed splats.
+- `features/spark-viewer/components/SparkScene.tsx:1165` awaits `SplatMesh.initialized`.
+- `features/spark-viewer/components/SparkScene.tsx:1215` starts the current time-based warmup.
 
 ## What `initialized` actually guarantees
 
