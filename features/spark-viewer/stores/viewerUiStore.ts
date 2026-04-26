@@ -2,21 +2,13 @@
 
 import { create } from "zustand";
 
-import type {
-  CompassState,
-  DetailPopupState,
-  JoystickVector,
-  ViewerUiState,
-} from "@/components/viewer/types";
+import type { CompassState, JoystickVector, ViewerUiState } from "@/features/spark-viewer/uiTypes";
 
 type Updater<T> = T | ((current: T) => T);
 
 type ViewerUiActions = {
   reset: () => void;
   setCompass: (next: Updater<CompassState>) => void;
-  setDetailPopup: (next: Updater<DetailPopupState | null>) => void;
-  setDropHint: (dropHint: string) => void;
-  setIsDraggingOver: (isDraggingOver: boolean) => void;
   setJoystickOffset: (joystickOffset: JoystickVector) => void;
   setStatus: (status: string) => void;
 };
@@ -29,9 +21,6 @@ const initialState: ViewerUiState = {
     pitchDeg: 0,
     rotationDeg: 0,
   },
-  detailPopup: null,
-  dropHint: "",
-  isDraggingOver: false,
   joystickOffset: { x: 0, y: 0 },
   status: "Spark を読み込み中...",
 };
@@ -46,12 +35,6 @@ export const useViewerUiStore = create<ViewerUiStore>()((set) => ({
     set((state) => ({
       compass: resolveUpdater(state.compass, next),
     })),
-  setDetailPopup: (next) =>
-    set((state) => ({
-      detailPopup: resolveUpdater(state.detailPopup, next),
-    })),
-  setDropHint: (dropHint) => set({ dropHint }),
-  setIsDraggingOver: (isDraggingOver) => set({ isDraggingOver }),
   setJoystickOffset: (joystickOffset) => set({ joystickOffset }),
   setStatus: (status) => set({ status }),
 }));

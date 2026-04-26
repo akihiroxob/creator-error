@@ -24,14 +24,4 @@ export const POSITIONAL_AUDIO_SOURCES = [
     volume: 0.85,
     worldOffset: new THREE.Vector3(-0.95, 0.85, -1.25),
   },
-  // {
-  //   loop: true,
-  //   maxDistance: 4.8,
-  //   name: "chime",
-  //   refDistance: 0.75,
-  //   rolloffFactor: 1.9,
-  //   url: "/asset/chime.wav",
-  //   volume: 0.58,
-  //   worldOffset: new THREE.Vector3(0.95, 1.05, 1.15),
-  // },
 ] as const;

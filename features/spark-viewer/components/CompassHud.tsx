@@ -2,7 +2,7 @@
 
 import * as THREE from "three";
 
-import type { CompassState } from "@/components/viewer/types";
+import type { CompassState } from "@/features/spark-viewer/uiTypes";
 
 type CompassHudProps = {
   compass: CompassState;

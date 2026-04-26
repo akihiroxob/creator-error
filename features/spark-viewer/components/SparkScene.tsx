@@ -4,51 +4,35 @@ import { useEffect, useRef } from "react";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { ViewerHud } from "@/components/viewer/ViewerHud";
-import type {
-  CompassState,
-  JoystickVector,
-  PlacementObjectDetail,
-} from "@/components/viewer/types";
+import { ViewerHud } from "@/features/spark-viewer/components/ViewerHud";
 import {
-  ASSET_ITEM_TRANSFER_TYPE,
   COLLISION_ASSET_URL,
   COLLISION_MESH_ROTATION,
   INITIAL_RENDER_WARMUP_DELAY_MS,
   INITIAL_RENDER_WARMUP_PASSES,
   POSITIONAL_AUDIO_SOURCES,
-  SAMPLE_OBJECT_TRANSFER_TYPE,
   SPARK_ASSET_URL,
-} from "@/components/viewer/sceneConstants";
+} from "@/features/spark-viewer/sceneConstants";
 import {
   collectCollisionMeshes,
   collidesWithRoom,
   createAudioMarker,
-  createPlacedAssetPlaceholder,
-  createPlacedGlbAsset,
-  createPlacedObject,
   disposeObject3D,
-  getObjectDetail,
-  getObjectPopupAnchor,
   getWorldBoundingBox,
   prepareStartingView,
-  projectWorldPointToScreen,
-  setObjectInteractionMode,
-  setObjectSelected,
-  shouldShowObjectDetail,
   toCompassState,
-} from "@/components/viewer/sceneHelpers";
-import { useViewerUiStore } from "@/stores/viewerUiStore";
+} from "@/features/spark-viewer/sceneHelpers";
 import type {
-  AssetItem,
   InputState,
+  JoystickVector,
   MovementControlKey,
   OrientationState,
   SparkSceneProps,
   ViewerLoadingState,
-} from "@/components/viewer/sceneTypes";
+} from "@/features/spark-viewer/sceneTypes";
+import { useViewerUiStore } from "@/features/spark-viewer/stores/viewerUiStore";
 
-export type { ViewerLoadingState } from "@/components/viewer/sceneTypes";
+export type { ViewerLoadingState } from "@/features/spark-viewer/sceneTypes";
 
 export function SparkScene({
   onLoadingStateChange,
@@ -59,659 +43,7 @@ export function SparkScene({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const collisionRoomRef = useRef<THREE.Object3D | null>(null);
   const positionalAudioRef = useRef<THREE.PositionalAudio[]>([]);
-import { useEffect, useRef, useState } from "react";
-import { SplatLoader, SplatMesh } from "@sparkjsdev/spark";
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-
-type InputState = {
-  forward: boolean;
-  back: boolean;
-  left: boolean;
-  right: boolean;
-  up: boolean;
-  down: boolean;
-  faster: boolean;
-};
-
-type OrientationState = {
-  yaw: number;
-  pitch: number;
-};
-
-type StartingView = {
-  moveSpeed: number;
-  pitch: number;
-  position: THREE.Vector3;
-  radius: number;
-  target: THREE.Vector3;
-  yaw: number;
-};
-
-type SampleObject = {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  shape: "box" | "cylinder";
-  size: [number, number, number];
-};
-
-export type PlacementObjectDetail = {
-  productName: string;
-  modelNumber: string;
-  companyName: string;
-  rentalCostLabel: string;
-};
-
-export type AssetItem = {
-  detail: PlacementObjectDetail;
-  id: string;
-  name: string;
-  previewSrc: string;
-  src: string;
-  targetSize: number;
-  type: "glb";
-};
-
-export type ViewerLoadingState = {
-  active: boolean;
-  mode: "busy" | "progress";
-  progress: number;
-  stage: string;
-  detail: string;
-};
-
-type CompassState = {
-  heading: string;
-  pitchDeg: number;
-  rotationDeg: number;
-};
-
-type ObjectInteractionMode = "idle" | "selected" | "moving" | "rotating";
-type DetailVisibility = "hidden" | "visible";
-
-type PlacementObjectUserData = {
-  detail?: PlacementObjectDetail;
-  detailVisibility?: DetailVisibility;
-  dispose?: () => void;
-  interactionMode?: ObjectInteractionMode;
-  selectable?: boolean;
-  selectionIndicator?: THREE.Object3D;
-};
-
-type DetailPopupState = {
-  detail: PlacementObjectDetail;
-  screenX: number;
-  screenY: number;
-};
-
-export const SAMPLE_OBJECT_TRANSFER_TYPE = "application/x-spark-sample-object";
-export const ASSET_ITEM_TRANSFER_TYPE = "application/x-spark-asset-item";
-const SPARK_ASSET_URL = "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/ply/3sdgs_room.ksplat";
-// const SPARK_ASSET_URL = "/3sdgs_room.ksplat";
-// `SplatMesh.initialized` completes before Spark auto-inserts its renderer,
-// performs the first deferred update, and finishes the initial sort pass, so
-// the first visually valid frame can lag behind data initialization.
-const INITIAL_RENDER_WARMUP_PASSES = 6;
-const INITIAL_RENDER_WARMUP_DELAY_MS = 300;
-
-export const SAMPLE_OBJECTS: SampleObject[] = [
-  {
-    id: "storage-box",
-    name: "Storage Box",
-    description: "小型の箱。角の確認用。",
-    color: "#f97316",
-    shape: "box",
-    size: [0.55, 0.55, 0.55],
-  },
-  {
-    id: "display-pillar",
-    name: "Display Pillar",
-    description: "縦長シリンダー。高さの確認用。",
-    color: "#22c55e",
-    shape: "cylinder",
-    size: [0.28, 1.2, 0.28],
-  },
-  {
-    id: "bench-block",
-    name: "Bench Block",
-    description: "横長ブロック。通路の見え方確認用。",
-    color: "#38bdf8",
-    shape: "box",
-    size: [1.2, 0.38, 0.45],
-  },
-];
-
-export const ASSET_ITEMS: AssetItem[] = [
-  {
-    id: "arm-chair",
-    name: "Arm Chair",
-    detail: {
-      productName: "Arm Chair",
-      modelNumber: "AC-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥12,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/arm_chair_2k.glb",
-    previewSrc: "/asset/arm_chair_2k.jpg",
-    targetSize: 0.68,
-    type: "glb",
-  },
-  {
-    id: "chinese-sofa",
-    name: "Chinese Sofa",
-    detail: {
-      productName: "Chinese Sofa",
-      modelNumber: "CS-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥28,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/chinese_sofa_2k.glb",
-    previewSrc: "/asset/chinese_sofa_2k.jpg",
-    targetSize: 1.05,
-    type: "glb",
-  },
-  {
-    id: "clock",
-    name: "Clock",
-    detail: {
-      productName: "Clock",
-      modelNumber: "CLK-2K",
-      companyName: "Junichi Props Rental",
-      rentalCostLabel: "¥4,500 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/cloc_2k.glb",
-    previewSrc: "/asset/cloc_2k.jpg",
-    targetSize: 0.36,
-    type: "glb",
-  },
-  {
-    id: "jug",
-    name: "Jug",
-    detail: {
-      productName: "Jug",
-      modelNumber: "JUG-2K",
-      companyName: "Junichi Props Rental",
-      rentalCostLabel: "¥3,200 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/jug_2k.glb",
-    previewSrc: "/asset/jug_2k.jpg",
-    targetSize: 0.26,
-    type: "glb",
-  },
-  {
-    id: "ottoman",
-    name: "Ottoman",
-    detail: {
-      productName: "Ottoman",
-      modelNumber: "OTM-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥8,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/Ottoman_2k.glb",
-    previewSrc: "/asset/Ottoman_2k.jpg",
-    targetSize: 0.46,
-    type: "glb",
-  },
-  {
-    id: "painted-wooden-stool",
-    name: "Painted Wooden Stool",
-    detail: {
-      productName: "Painted Wooden Stool",
-      modelNumber: "PWS-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥5,400 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/painted_wooden_stool_2k.glb",
-    previewSrc: "/asset/painted_wooden_stool_2k.jpg",
-    targetSize: 0.42,
-    type: "glb",
-  },
-  {
-    id: "sofa",
-    name: "Sofa",
-    detail: {
-      productName: "Sofa",
-      modelNumber: "SF-2K",
-      companyName: "Junichi Furniture Rental",
-      rentalCostLabel: "¥26,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/sofa_2k.glb",
-    previewSrc: "/asset/sofa_2k.jpg",
-    targetSize: 1.13,
-    type: "glb",
-  },
-  {
-    id: "steel-frame",
-    name: "Steel Frame",
-    detail: {
-      productName: "Steel Frame",
-      modelNumber: "STF-2K",
-      companyName: "Junichi Display Systems",
-      rentalCostLabel: "¥15,000 / month",
-    },
-    src: "https://pub-1d838c816462442a90bd803fa63dbda2.r2.dev/objects/steel_frame_2k.glb",
-    previewSrc: "/asset/steel_frame_2k.jpg",
-    targetSize: 0.9,
-    type: "glb",
-  },
-];
-
-type SparkSceneProps = {
-  onLoadingStateChange?: (state: ViewerLoadingState) => void;
-};
-
-function attachSelectionIndicator(group: THREE.Group, radius: number) {
-  const indicator = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 0.72, radius, 48),
-    new THREE.MeshBasicMaterial({
-      color: "#38bdf8",
-      transparent: true,
-      opacity: 0.82,
-      side: THREE.DoubleSide,
-    }),
-  );
-  indicator.rotation.x = -Math.PI / 2;
-  indicator.position.y = 0.02;
-  indicator.visible = false;
-  group.add(indicator);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.selectionIndicator = indicator;
-}
-
-function setObjectSelected(object: THREE.Object3D | null, selected: boolean) {
-  if (!object) {
-    return;
-  }
-
-  const indicator = (object.userData as PlacementObjectUserData).selectionIndicator;
-  if (indicator instanceof THREE.Object3D) {
-    indicator.visible = selected;
-  }
-}
-
-function resolveDetailVisibility(interactionMode: ObjectInteractionMode): DetailVisibility {
-  return interactionMode === "selected" ? "visible" : "hidden";
-}
-
-function setObjectInteractionMode(
-  object: THREE.Object3D | null,
-  interactionMode: ObjectInteractionMode,
-) {
-  if (!object) {
-    return;
-  }
-
-  const userData = object.userData as PlacementObjectUserData;
-  userData.interactionMode = interactionMode;
-  userData.detailVisibility = resolveDetailVisibility(interactionMode);
-}
-
-function getObjectDetail(object: THREE.Object3D | null) {
-  if (!object) {
-    return null;
-  }
-
-  return ((object.userData as PlacementObjectUserData).detail ??
-    null) as PlacementObjectDetail | null;
-}
-
-function shouldShowObjectDetail(object: THREE.Object3D | null) {
-  if (!object) {
-    return false;
-  }
-
-  const userData = object.userData as PlacementObjectUserData;
-  return userData.detailVisibility === "visible" && !!userData.detail;
-}
-
-function getObjectPopupAnchor(object: THREE.Object3D) {
-  const box = new THREE.Box3().setFromObject(object);
-  if (box.isEmpty()) {
-    return object.getWorldPosition(new THREE.Vector3());
-  }
-
-  const anchor = box.getCenter(new THREE.Vector3());
-  anchor.y = box.max.y + Math.max(box.getSize(new THREE.Vector3()).y * 0.04, 0.04);
-  return anchor;
-}
-
-function projectWorldPointToScreen(
-  point: THREE.Vector3,
-  camera: THREE.PerspectiveCamera,
-  container: HTMLElement,
-) {
-  const projected = point.clone().project(camera);
-  if (projected.z < -1 || projected.z > 1) {
-    return null;
-  }
-
-  const bounds = container.getBoundingClientRect();
-  return {
-    screenX: ((projected.x + 1) / 2) * bounds.width,
-    screenY: ((1 - projected.y) / 2) * bounds.height,
-  };
-}
-
-function createPlacedObject(sample: SampleObject) {
-  const [width, height, depth] = sample.size;
-  const group = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({
-    color: sample.color,
-    roughness: 0.45,
-    metalness: 0.08,
-  });
-  const accentMaterial = new THREE.MeshBasicMaterial({
-    color: sample.color,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.18,
-  });
-
-  const geometry =
-    sample.shape === "cylinder"
-      ? new THREE.CylinderGeometry(width, depth, height, 24)
-      : new THREE.BoxGeometry(width, height, depth);
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = height / 2;
-  group.add(mesh);
-
-  const silhouette = new THREE.Mesh(geometry.clone(), accentMaterial);
-  silhouette.position.copy(mesh.position);
-  silhouette.scale.setScalar(1.03);
-  group.add(silhouette);
-
-  const marker = new THREE.Mesh(
-    new THREE.RingGeometry(Math.max(width, depth) * 0.45, Math.max(width, depth) * 0.66, 40),
-    new THREE.MeshBasicMaterial({
-      color: sample.color,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide,
-    }),
-  );
-  marker.rotation.x = -Math.PI / 2;
-  marker.position.y = 0.015;
-  group.add(marker);
-  attachSelectionIndicator(group, Math.max(width, depth) * 0.92);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.selectable = true;
-  userData.interactionMode = "idle";
-  userData.detailVisibility = "hidden";
-
-  userData.dispose = () => {
-    const selectionIndicator = userData.selectionIndicator as THREE.Mesh | undefined;
-    geometry.dispose();
-    silhouette.geometry.dispose();
-    marker.geometry.dispose();
-    material.dispose();
-    accentMaterial.dispose();
-    const markerMaterial = marker.material;
-    if (markerMaterial instanceof THREE.Material) {
-      markerMaterial.dispose();
-    }
-    if (selectionIndicator) {
-      selectionIndicator.geometry.dispose();
-      const selectionMaterial = selectionIndicator.material;
-      if (selectionMaterial instanceof THREE.Material) {
-        selectionMaterial.dispose();
-      }
-    }
-  };
-
-  return group;
-}
-
-function orientPlacedObject(group: THREE.Object3D, camera: THREE.PerspectiveCamera) {
-  const facing = new THREE.Vector3();
-  camera.getWorldDirection(facing);
-  facing.y = 0;
-  if (facing.lengthSq() === 0) {
-    facing.set(0, 0, -1);
-  }
-  group.rotation.y = Math.atan2(facing.x, facing.z) + Math.PI;
-}
-
-function disposeObject3D(root: THREE.Object3D) {
-  root.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (mesh.geometry) {
-      mesh.geometry.dispose();
-    }
-    const material = mesh.material;
-    if (Array.isArray(material)) {
-      material.forEach((entry) => entry.dispose());
-    } else if (material instanceof THREE.Material) {
-      material.dispose();
-    }
-  });
-}
-
-function createPlacedAssetPlaceholder(asset: AssetItem, camera: THREE.PerspectiveCamera) {
-  const group = new THREE.Group();
-  const width = 1.4;
-  const height = 1;
-  const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({
-    color: "#dbeafe",
-    side: THREE.DoubleSide,
-  });
-  const panel = new THREE.Mesh(geometry, material);
-  panel.position.y = height / 2;
-  group.add(panel);
-
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 0.08, height + 0.08, 0.05),
-    new THREE.MeshStandardMaterial({
-      color: "#0f172a",
-      roughness: 0.6,
-      metalness: 0.15,
-    }),
-  );
-  frame.position.set(0, height / 2, -0.03);
-  group.add(frame);
-
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.16, 0.08, 24),
-    new THREE.MeshStandardMaterial({
-      color: "#334155",
-      roughness: 0.75,
-      metalness: 0.1,
-    }),
-  );
-  base.position.y = 0.04;
-  group.add(base);
-
-  orientPlacedObject(group, camera);
-
-  const loader = new THREE.TextureLoader();
-  let texture: THREE.Texture | null = null;
-  void loader.load(
-    asset.previewSrc,
-    (loaded) => {
-      texture = loaded;
-      texture.colorSpace = THREE.SRGBColorSpace;
-      material.map = texture;
-      material.needsUpdate = true;
-    },
-    undefined,
-    () => {
-      material.color.set("#fca5a5");
-    },
-  );
-
-  group.userData.dispose = () => {
-    const userData = group.userData as PlacementObjectUserData;
-    geometry.dispose();
-    panel.material.dispose();
-    frame.geometry.dispose();
-    frame.material.dispose();
-    base.geometry.dispose();
-    base.material.dispose();
-    texture?.dispose();
-    userData.detailVisibility = "hidden";
-  };
-
-  return group;
-}
-
-async function createPlacedGlbAsset(asset: AssetItem, camera: THREE.PerspectiveCamera) {
-  const group = new THREE.Group();
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(asset.src);
-  const model = gltf.scene;
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const largestSide = Math.max(size.x, size.y, size.z, 0.001);
-  const scale = asset.targetSize / largestSide;
-
-  model.position.sub(center);
-  model.scale.setScalar(scale);
-  const scaledBox = new THREE.Box3().setFromObject(model);
-  model.position.y -= scaledBox.min.y;
-
-  group.add(model);
-  const scaledSize = scaledBox.getSize(new THREE.Vector3());
-  attachSelectionIndicator(group, Math.max(scaledSize.x, scaledSize.z, 0.45) * 0.58);
-  orientPlacedObject(group, camera);
-  const userData = group.userData as PlacementObjectUserData;
-  userData.detail = asset.detail;
-  userData.detailVisibility = "hidden";
-  userData.interactionMode = "idle";
-  userData.selectable = true;
-  userData.dispose = () => {
-    disposeObject3D(group);
-  };
-  return group;
-}
-
-function getWorldBoundingBox(object: SplatMesh) {
-  object.updateMatrixWorld(true);
-  return object.getBoundingBox().clone().applyMatrix4(object.matrixWorld);
-}
-
-function toCompassState(direction: THREE.Vector3): CompassState {
-  const normalizedHeading = THREE.MathUtils.euclideanModulo(
-    THREE.MathUtils.radToDeg(Math.atan2(direction.x, -direction.z)),
-    360,
-  );
-  const headings = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  const index = Math.round(normalizedHeading / 45) % headings.length;
-
-  return {
-    heading: headings[index],
-    pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1))),
-    rotationDeg: normalizedHeading,
-  };
-}
-
-function prepareStartingView(camera: THREE.PerspectiveCamera, object: SplatMesh) {
-  const box = getWorldBoundingBox(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxSize = Math.max(size.x, size.y, size.z, 0);
-  const orientation = new THREE.Euler(0, 0, 0, "YXZ");
-
-  if (!Number.isFinite(maxSize) || maxSize <= 0) {
-    camera.near = 0.01;
-    camera.far = Math.max(size.length() * 3, 50);
-    camera.position.copy(center);
-    camera.up.set(0, 1, 0);
-    const target = center.clone().add(new THREE.Vector3(0, 0, -1));
-    camera.lookAt(target);
-    orientation.setFromQuaternion(camera.quaternion, "YXZ");
-    camera.updateProjectionMatrix();
-    return {
-      moveSpeed: 1,
-      pitch: orientation.x,
-      position: camera.position.clone(),
-      radius: 1,
-      target,
-      yaw: orientation.y,
-    };
-  }
-
-  const start = center.clone();
-  const target = center.clone();
-  const farPlane = Math.max(maxSize * 20, 100);
-  const dominantHorizontalAxis = size.x >= size.z ? "x" : "z";
-  const horizontalInsetX = Math.max(size.x * 0.18, 0.4);
-  const horizontalInsetZ = Math.max(size.z * 0.18, 0.4);
-  const eyeHeight = THREE.MathUtils.clamp(size.y * 0.07, 0.22, 0.95);
-  const headroom = Math.max(size.y * 0.12, 0.35);
-  const minimumInteriorY = box.min.y + Math.max(size.y * 0.04, 0.16);
-  const lookDownOffset = Math.max(size.y * 0.03, 0.05);
-  const initialRaise = THREE.MathUtils.clamp(Math.max(maxSize * 0.025, 0.14), 0.14, 0.32);
-  const startOffset =
-    dominantHorizontalAxis === "x" ? Math.max(size.x * 0.16, 0.8) : Math.max(size.z * 0.16, 0.8);
-  const northLookOffset = Math.max(size.z * 0.08, 0.45);
-
-  camera.near = 0.01;
-  camera.far = farPlane;
-  camera.up.set(0, 1, 0);
-
-  start.y = THREE.MathUtils.clamp(
-    Math.max(box.min.y + eyeHeight + initialRaise, minimumInteriorY),
-    box.min.y + 0.35,
-    box.max.y - headroom,
-  );
-  target.y = start.y - lookDownOffset;
-
-  if (dominantHorizontalAxis === "x") {
-    start.x = THREE.MathUtils.clamp(
-      center.x - startOffset,
-      box.min.x + horizontalInsetX,
-      box.max.x - horizontalInsetX,
-    );
-    target.x = start.x;
-    start.z = THREE.MathUtils.clamp(
-      start.z,
-      box.min.z + horizontalInsetZ,
-      box.max.z - horizontalInsetZ,
-    );
-  } else {
-    start.z = THREE.MathUtils.clamp(
-      center.z - startOffset,
-      box.min.z + horizontalInsetZ,
-      box.max.z - horizontalInsetZ,
-    );
-    start.x = THREE.MathUtils.clamp(
-      start.x,
-      box.min.x + horizontalInsetX,
-      box.max.x - horizontalInsetX,
-    );
-  }
-
-  target.z = THREE.MathUtils.clamp(
-    start.z - northLookOffset,
-    box.min.z + horizontalInsetZ,
-    box.max.z - horizontalInsetZ,
-  );
-
-  camera.position.copy(start);
-  camera.lookAt(target);
-  orientation.setFromQuaternion(camera.quaternion, "YXZ");
-  camera.updateProjectionMatrix();
-
-  return {
-    moveSpeed: Math.max(maxSize * 0.2, 0.35),
-    pitch: orientation.x,
-    position: start.clone(),
-    radius: camera.position.distanceTo(target),
-    target,
-    yaw: orientation.y,
-  };
-}
-
-export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const worldBoundsRef = useRef<THREE.Box3 | null>(null);
-  const placementLayerRef = useRef<THREE.Group | null>(null);
-  const placementPlaneYRef = useRef(0);
   const requestRenderRef = useRef<() => void>(() => {});
   const inputStateRef = useRef<InputState>({
     forward: false,
@@ -723,14 +55,9 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     faster: false,
   });
   const movementJoystickRef = useRef<JoystickVector>({ x: 0, y: 0 });
-  const raycasterRef = useRef(new THREE.Raycaster());
   const showCollisionMeshRef = useRef(false);
   const loadingPhaseRankRef = useRef(0);
-  const selectedObjectRef = useRef<THREE.Object3D | null>(null);
   const setCompass = useViewerUiStore((state) => state.setCompass);
-  const setDetailPopup = useViewerUiStore((state) => state.setDetailPopup);
-  const setDropHint = useViewerUiStore((state) => state.setDropHint);
-  const setIsDraggingOver = useViewerUiStore((state) => state.setIsDraggingOver);
   const setJoystickOffset = useViewerUiStore((state) => state.setJoystickOffset);
   const setStatus = useViewerUiStore((state) => state.setStatus);
   const resetViewerUi = useViewerUiStore((state) => state.reset);
@@ -827,10 +154,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     keyLight.position.set(5, 9, 3);
     scene.add(keyLight);
 
-    const placementLayer = new THREE.Group();
-    placementLayerRef.current = placementLayer;
-    scene.add(placementLayer);
-
     const input = inputStateRef.current;
     input.forward = false;
     input.back = false;
@@ -857,12 +180,8 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     let moveSpeed = 1;
     let lookRadius = 1;
     let dragging = false;
-    let movingSelectedObject = false;
-    let pendingObjectSelection: THREE.Object3D | null = null;
     let lastPointerX = 0;
     let lastPointerY = 0;
-    let pointerDownX = 0;
-    let pointerDownY = 0;
     let renderRequested = true;
     let disposed = false;
     let splatMesh: SplatMesh | null = null;
@@ -886,52 +205,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       onDirty: requestRender,
     });
     scene.add(sparkRenderer);
-    const getPointerOnPlacementPlane = (clientX: number, clientY: number) => {
-      const containerBounds = container.getBoundingClientRect();
-      if (containerBounds.width <= 0 || containerBounds.height <= 0) {
-        return null;
-      }
-
-      const pointer = new THREE.Vector2(
-        ((clientX - containerBounds.left) / containerBounds.width) * 2 - 1,
-        -((clientY - containerBounds.top) / containerBounds.height) * 2 + 1,
-      );
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -placementPlaneYRef.current);
-      const hitPoint = new THREE.Vector3();
-      raycasterRef.current.setFromCamera(pointer, camera);
-
-      if (!raycasterRef.current.ray.intersectPlane(plane, hitPoint)) {
-        return null;
-      }
-
-      return hitPoint;
-    };
-
-    const findPlacedObjectAtPointer = (clientX: number, clientY: number) => {
-      const containerBounds = container.getBoundingClientRect();
-      if (containerBounds.width <= 0 || containerBounds.height <= 0) {
-        return null;
-      }
-
-      const pointer = new THREE.Vector2(
-        ((clientX - containerBounds.left) / containerBounds.width) * 2 - 1,
-        -((clientY - containerBounds.top) / containerBounds.height) * 2 + 1,
-      );
-      raycasterRef.current.setFromCamera(pointer, camera);
-      const intersections = raycasterRef.current.intersectObjects(placementLayer.children, true);
-
-      for (const intersection of intersections) {
-        let current: THREE.Object3D | null = intersection.object;
-        while (current && current.parent !== placementLayer) {
-          current = current.parent;
-        }
-        if (current?.userData.selectable) {
-          return current;
-        }
-      }
-
-      return null;
-    };
 
     const applyOrientation = () => {
       orientation.pitch = THREE.MathUtils.clamp(
@@ -968,52 +241,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       renderer.render(scene, camera);
     };
 
-    const updateDetailPopup = () => {
-      const selectedObject = selectedObjectRef.current;
-      if (!container || !camera || !shouldShowObjectDetail(selectedObject)) {
-        setDetailPopup((current) => (current ? null : current));
-        return;
-      }
-      if (!selectedObject) {
-        setDetailPopup((current) => (current ? null : current));
-        return;
-      }
-
-      const detail = getObjectDetail(selectedObject);
-      if (!detail) {
-        setDetailPopup((current) => (current ? null : current));
-        return;
-      }
-
-      const projected = projectWorldPointToScreen(
-        getObjectPopupAnchor(selectedObject),
-        camera,
-        container,
-      );
-
-      if (!projected) {
-        setDetailPopup((current) => (current ? null : current));
-        return;
-      }
-
-      setDetailPopup((current) => {
-        if (
-          current &&
-          current.detail === detail &&
-          Math.abs(current.screenX - projected.screenX) < 0.5 &&
-          Math.abs(current.screenY - projected.screenY) < 0.5
-        ) {
-          return current;
-        }
-
-        return {
-          detail,
-          screenX: projected.screenX,
-          screenY: projected.screenY,
-        };
-      });
-    };
-
     const onResize = () => {
       const nextWidth = container.clientWidth;
       const nextHeight = container.clientHeight;
@@ -1033,98 +260,15 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         return;
       }
 
-      const hitPlacedObject = findPlacedObjectAtPointer(event.clientX, event.clientY);
-      if (hitPlacedObject) {
-        setObjectSelected(selectedObjectRef.current, false);
-        setObjectInteractionMode(selectedObjectRef.current, "idle");
-        selectedObjectRef.current = hitPlacedObject;
-        setObjectSelected(hitPlacedObject, true);
-        setObjectInteractionMode(hitPlacedObject, "selected");
-        pendingObjectSelection = hitPlacedObject;
-        lastPointerX = event.clientX;
-        lastPointerY = event.clientY;
-        pointerDownX = event.clientX;
-        pointerDownY = event.clientY;
-        renderer.domElement.style.cursor = "move";
-        renderer.domElement.setPointerCapture(event.pointerId);
-        requestRender();
-        setStatus("オブジェクトを選択しました");
-        setDropHint("選択中: クリックで詳細表示 / ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
-        return;
-      }
-
-      if (selectedObjectRef.current) {
-        setObjectSelected(selectedObjectRef.current, false);
-        setObjectInteractionMode(selectedObjectRef.current, "idle");
-        selectedObjectRef.current = null;
-        requestRender();
-      }
-
       dragging = true;
-      pendingObjectSelection = null;
       lastPointerX = event.clientX;
       lastPointerY = event.clientY;
-      pointerDownX = event.clientX;
-      pointerDownY = event.clientY;
       renderer.domElement.style.cursor = "grabbing";
       renderer.domElement.setPointerCapture(event.pointerId);
       requestRender();
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      if (pendingObjectSelection && !movingSelectedObject) {
-        const movedBeyondThreshold =
-          Math.abs(event.clientX - pointerDownX) > dragThresholdPx ||
-          Math.abs(event.clientY - pointerDownY) > dragThresholdPx;
-
-        if (movedBeyondThreshold) {
-          movingSelectedObject = true;
-          setObjectInteractionMode(pendingObjectSelection, event.shiftKey ? "rotating" : "moving");
-          setDetailPopup(null);
-        }
-      }
-
-      if (movingSelectedObject) {
-        const selectedObject = selectedObjectRef.current;
-        const worldBounds = worldBoundsRef.current;
-        const deltaX = event.clientX - lastPointerX;
-        lastPointerX = event.clientX;
-        lastPointerY = event.clientY;
-
-        if (!selectedObject) {
-          return;
-        }
-
-        if (event.shiftKey) {
-          setObjectInteractionMode(selectedObject, "rotating");
-          selectedObject.rotation.y += deltaX * 0.01;
-          requestRender();
-          return;
-        }
-
-        setObjectInteractionMode(selectedObject, "moving");
-        const hitPoint = getPointerOnPlacementPlane(event.clientX, event.clientY);
-
-        if (!worldBounds || !hitPoint) {
-          return;
-        }
-
-        hitPoint.x = THREE.MathUtils.clamp(
-          hitPoint.x,
-          worldBounds.min.x + 0.35,
-          worldBounds.max.x - 0.35,
-        );
-        hitPoint.z = THREE.MathUtils.clamp(
-          hitPoint.z,
-          worldBounds.min.z + 0.35,
-          worldBounds.max.z - 0.35,
-        );
-        hitPoint.y = placementPlaneYRef.current;
-        selectedObject.position.copy(hitPoint);
-        requestRender();
-        return;
-      }
-
       if (!dragging) {
         return;
       }
@@ -1141,30 +285,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
 
     const endDrag = (event: PointerEvent) => {
-      if (movingSelectedObject) {
-        setObjectInteractionMode(selectedObjectRef.current, "selected");
-        movingSelectedObject = false;
-        pendingObjectSelection = null;
-        renderer.domElement.style.cursor = "grab";
-        if (renderer.domElement.hasPointerCapture(event.pointerId)) {
-          renderer.domElement.releasePointerCapture(event.pointerId);
-        }
-        setStatus("オブジェクト位置を更新しました");
-        return;
-      }
-
-      if (pendingObjectSelection) {
-        setObjectInteractionMode(pendingObjectSelection, "selected");
-        pendingObjectSelection = null;
-        renderer.domElement.style.cursor = "grab";
-        if (renderer.domElement.hasPointerCapture(event.pointerId)) {
-          renderer.domElement.releasePointerCapture(event.pointerId);
-        }
-        requestRender();
-        setStatus("オブジェクト詳細を表示します");
-        return;
-      }
-
       dragging = false;
       renderer.domElement.style.cursor = "grab";
       if (renderer.domElement.hasPointerCapture(event.pointerId)) {
@@ -1173,22 +293,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      const selectedObject = selectedObjectRef.current;
-
-      if (selectedObject && (event.code === "BracketLeft" || event.code === "BracketRight")) {
-        setObjectInteractionMode(selectedObject, "rotating");
-        setDetailPopup(null);
-        selectedObject.rotation.y +=
-          event.code === "BracketLeft"
-            ? THREE.MathUtils.degToRad(12)
-            : -THREE.MathUtils.degToRad(12);
-        event.preventDefault();
-        requestRender();
-        setStatus("オブジェクト角度を更新しました");
-        setDropHint("選択中: ドラッグで移動 / Shift+ドラッグ or [ ] で回転");
-        return;
-      }
-
       switch (event.code) {
         case "KeyW":
         case "ArrowUp":
@@ -1263,9 +367,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
 
     const clearInput = () => {
       dragging = false;
-      movingSelectedObject = false;
-      pendingObjectSelection = null;
-      setObjectInteractionMode(selectedObjectRef.current, "selected");
       renderer.domElement.style.cursor = "grab";
       input.forward = false;
       input.back = false;
@@ -1353,7 +454,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       if (needsMovement || renderRequested) {
         renderRequested = false;
         renderFrame();
-        updateDetailPopup();
       }
 
       requestAnimationFrame(animate);
@@ -1377,7 +477,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
     void (async () => {
       try {
         loadingPhaseRankRef.current = 0;
-        const loader = new SplatLoader();
         setStatus("Spark で 3sdgs_room.ply を読み込み中...");
         reportLoadingState({
           active: true,
@@ -1387,38 +486,34 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
           detail: "PLY アセットを取得しています",
         });
 
-        const packedSplats = await loader.loadAsync(SPARK_ASSET_URL, (event) => {
-          const total = event.total && event.total > 0 ? event.total : event.loaded || 1;
-          const ratio = total > 0 ? event.loaded / total : 0;
-          const percent = Math.min(100, Math.max(0, ratio * 100));
+        const mesh = new SplatMesh({
+          url: SPARK_ASSET_URL,
+          onProgress: (event) => {
+            const total = event.total && event.total > 0 ? event.total : event.loaded || 1;
+            const ratio = total > 0 ? event.loaded / total : 0;
+            const percent = Math.min(100, Math.max(0, ratio * 100));
 
-          reportLoadingState({
-            active: true,
-            mode: "progress",
-            progress: percent,
-            stage: "ダウンロード中",
-            detail: `PLY アセットを取得しています`,
-          });
-
-          if (percent >= 100) {
             reportLoadingState({
               active: true,
-              mode: "busy",
-              progress: 100,
-              stage: "読み込み中",
-              detail: "PLY データをメッシュへ変換しています",
+              mode: "progress",
+              progress: percent,
+              stage: "ダウンロード中",
+              detail: `PLY アセットを取得しています`,
             });
-          }
+
+            if (percent >= 100) {
+              reportLoadingState({
+                active: true,
+                mode: "busy",
+                progress: 100,
+                stage: "読み込み中",
+                detail: "PLY データをメッシュへ変換しています",
+              });
+            }
+          },
         });
 
-        if (disposed) {
-          packedSplats.dispose();
-          return;
-        }
-
-        splatMesh = await new SplatMesh({
-          packedSplats,
-        }).initialized;
+        splatMesh = await mesh.initialized;
 
         if (disposed) {
           splatMesh.dispose();
@@ -1440,8 +535,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         const startingView = prepareStartingView(camera, splatMesh);
         const worldBounds = getWorldBoundingBox(splatMesh);
         worldBoundsRef.current = worldBounds;
-        placementPlaneYRef.current =
-          worldBounds.min.y + Math.max(worldBounds.getSize(new THREE.Vector3()).y * 0.025, 0.08);
         moveSpeed = startingView.moveSpeed;
         lookRadius = Math.max(startingView.radius, 0.1);
         lookTarget.copy(startingView.target);
@@ -1596,12 +689,6 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
       renderer.domElement.removeEventListener("pointerup", endDrag);
       renderer.domElement.removeEventListener("pointercancel", endDrag);
       renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
-      placementLayer.children.forEach((child) => {
-        const dispose = child.userData.dispose;
-        if (typeof dispose === "function") {
-          dispose();
-        }
-      });
       for (const audio of positionalAudioRef.current) {
         if (audio.isPlaying) {
           audio.stop();
@@ -1617,12 +704,10 @@ export function SparkScene({ onLoadingStateChange }: SparkSceneProps) {
         disposeObject3D(collisionRoom);
       }
       renderer.dispose();
-      placementLayerRef.current = null;
       worldBoundsRef.current = null;
       cameraRef.current = null;
       collisionRoomRef.current = null;
       requestRenderRef.current = () => {};
-      setDetailPopup(null);
       resetViewerUi();
       reportLoadingState({
         active: false,

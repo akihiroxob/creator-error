@@ -1,1 +1,2 @@
-export type { ViewerLoadingState } from "./components/SparkScene";
+export type { CompassState, JoystickVector, ViewerUiState } from "./uiTypes";
+export type { ViewerLoadingState } from "./sceneTypes";

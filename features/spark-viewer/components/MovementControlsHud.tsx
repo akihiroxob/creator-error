@@ -1,6 +1,6 @@
 "use client";
 
-import type { JoystickVector } from "@/components/viewer/types";
+import type { JoystickVector } from "@/features/spark-viewer/uiTypes";
 
 type MovementControlKey = "forward" | "back" | "left" | "right" | "up" | "down";
 
