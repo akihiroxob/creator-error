@@ -11,13 +11,16 @@ import {
   INITIAL_RENDER_WARMUP_DELAY_MS,
   INITIAL_RENDER_WARMUP_PASSES,
   POSITIONAL_AUDIO_SOURCES,
+  SPLAT_MESH_ROTATION,
   SPARK_ASSET_URL,
 } from "@/features/spark-viewer/sceneConstants";
 import {
+  alignCameraHeightToCollisionBounds,
   collectCollisionMeshes,
   collidesWithRoom,
   createAudioMarker,
   disposeObject3D,
+  getObjectWorldBoundingBox,
   getWorldBoundingBox,
   prepareStartingView,
   toCompassState,
@@ -176,6 +179,9 @@ export function SparkScene({
     const lookTarget = new THREE.Vector3();
     const clock = new THREE.Clock();
     const lookSensitivity = 0.0032;
+    const formatNumber = (value: number) => value.toFixed(2);
+    const formatVector = (vector: THREE.Vector3) =>
+      `${formatNumber(vector.x)}, ${formatNumber(vector.y)}, ${formatNumber(vector.z)}`;
 
     let moveSpeed = 1;
     let lookRadius = 1;
@@ -438,6 +444,9 @@ export function SparkScene({
         lookTarget.add(actualDelta);
         camera.lookAt(lookTarget);
         moved = actualDelta.lengthSq() > 0;
+        if (moved) {
+          setStatus(`cam ${formatVector(camera.position)} | look ${formatVector(lookTarget)}`);
+        }
       }
 
       return moved;
@@ -528,18 +537,22 @@ export function SparkScene({
           detail: "シーンと初期カメラを確定しています",
         });
 
-        splatMesh.rotation.z = Math.PI;
+        splatMesh.rotation.copy(SPLAT_MESH_ROTATION);
         splatMesh.updateMatrixWorld(true);
         scene.add(splatMesh);
 
         const startingView = prepareStartingView(camera, splatMesh);
         const worldBounds = getWorldBoundingBox(splatMesh);
         worldBoundsRef.current = worldBounds;
+        camera.position.copy(startingView.position);
         moveSpeed = startingView.moveSpeed;
         lookRadius = Math.max(startingView.radius, 0.1);
         lookTarget.copy(startingView.target);
         orientation.yaw = startingView.yaw;
         orientation.pitch = startingView.pitch;
+        setStatus(
+          `init cam ${formatVector(startingView.position)} | look ${formatVector(startingView.target)} | bounds y ${formatNumber(worldBounds.min.y)}..${formatNumber(worldBounds.max.y)}`,
+        );
         applyOrientation();
 
         if (disposed) {
@@ -568,6 +581,13 @@ export function SparkScene({
         collisionRoom.visible = showCollisionMeshRef.current;
         collisionRoomRef.current = collisionRoom;
         scene.add(collisionRoom);
+        const collisionBounds = getObjectWorldBoundingBox(collisionRoom);
+        const collisionPlacement = alignCameraHeightToCollisionBounds(
+          camera,
+          lookTarget,
+          collisionBounds,
+        );
+        lookRadius = Math.max(camera.position.distanceTo(lookTarget), 0.1);
 
         if (disposed) {
           return;
@@ -618,7 +638,9 @@ export function SparkScene({
           }
         }
 
-        setStatus(`Spark: ${splatMesh.context.splats.getNumSplats().toLocaleString()} splats`);
+        setStatus(
+          `init cam ${formatVector(startingView.position)} | splat y ${formatNumber(worldBounds.min.y)}..${formatNumber(worldBounds.max.y)} | collision y ${formatNumber(collisionPlacement.floorY)}..${formatNumber(collisionPlacement.ceilingY)} | cam ${formatVector(camera.position)} | look ${formatVector(lookTarget)} | splats ${splatMesh.context.splats.getNumSplats().toLocaleString()}`,
+        );
         reportLoadingState({
           active: true,
           mode: "busy",

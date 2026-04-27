@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ServiceName | 置いてみる。確かめる。借りられる。",
+  title: "Here it! | 置いてみる。確かめる。借りられる。",
   description: "置いてみる。確かめる。借りられる。空間検証型レンタルサービスのLPです。",
 };
 
