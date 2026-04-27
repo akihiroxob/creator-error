@@ -1,9 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "creator-error",
+  "name": "hereit",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-04-16",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

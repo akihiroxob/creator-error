@@ -1,4 +1,4 @@
-# creator-error
+# Hereit!
 
 `Next.js + TypeScript + Three.js` で、LP と 3D デモページを同居させるための雛形です。
 
