@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
 import { createRequire } from "node:module";
-
 const nextConfig: NextConfig = {};
 
 const require = createRequire(import.meta.url);

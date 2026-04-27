@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { SparkScene, type ViewerLoadingState } from "@/features/spark-viewer/components/SparkScene";
+import dynamic from "next/dynamic";
+import type { ViewerLoadingState } from "@/features/spark-viewer/components/SparkScene";
+
+const SparkScene = dynamic(
+  () =>
+    import("@/features/spark-viewer/components/SparkScene").then((mod) => mod.SparkScene),
+  { ssr: false },
+);
 
 export default function SparkDemoPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
