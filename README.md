@@ -14,27 +14,34 @@ npm install
 npm run dev
 ```
 
+## Cloudflare Pages
+
+このアプリは現状、SSR や API Route を使っていないため、
+Cloudflare Workers ではなく静的 export を Cloudflare Pages へ配信する構成にしています。
+
+無料プランの `Workers 3 MiB` 制限を避けるため、通常のデプロイは次を使ってください。
+
+```bash
+npm run build
+npm run deploy
+```
+
+ローカルで Pages 配信を確認する場合は次です。
+
+```bash
+npm run preview:pages
+```
+
 ## Cloudflare Workers
 
-Cloudflare Dashboard で `Build command` を `npm run build` のままにすると、
-OpenNext 用の成果物が作られず deploy に失敗します。
+`@opennextjs/cloudflare` を使う Workers 向けスクリプトは残していますが、
+Next.js 16 系ではバンドルが大きくなりやすく、無料プランの `3 MiB` 制限を超えることがあります。
 
-Cloudflare 用には次を使ってください。
+必要な場合のみ次を使ってください。
 
 ```bash
 npm run build:cf
-```
-
-Deploy command は次です。
-
-```bash
 npm run deploy:cf
-```
-
-または 1 コマンドでまとめるなら次でも動きます。
-
-```bash
-npm run deploy
 ```
 
 ## Notes
